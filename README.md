@@ -20,6 +20,11 @@ This repository is the monolithic kernel, its boot system, its module loader, an
 
 ---
 
+## The Night Kernel
+Please check out another 32-bit dos kernel in its early stages written in ASM, https://github.com/arkwise/darknightkernel. This kernel is still being activly developed but needs some more love so check it out.
+
+---
+
 ## Build
 
 Prerequisites (install separately):
