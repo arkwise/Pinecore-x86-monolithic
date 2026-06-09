@@ -1,0 +1,96 @@
+
+  HDPMI API
+
+  1) Overview
+  
+  The HDPMI API can be accessed by calling Int 31h, ax=168ah, ds:e/si="HDPMI".
+  This call returns AL=00 if successful, and the API's entry address in es:e/di.
+  To call a function, register AX has to be set to the function#, additional
+  arguments are passed as described below.
+
+      #       description
+  --------------------------------------------------------------------------
+
+      functions 0-3 for debug versions only
+
+      0       disable log writing
+      1       enable log writing
+      2       select extended log writing
+              in: BX = flags
+      3       display client's memory objects
+
+      4       current host won't accept new clients ( enters disabled state );
+              if a new client is launched, it will have to install a fresh
+              instance of HDPMI.
+      5       set internal value of stored environment variable flag HDPMI=32.
+              in: BL = new value (0|1)
+              out: AL = old value.
+
+      functions 6-10 for IOPL=0 versions only
+
+      6       Set IO port range to trap
+              in: DS:E/SI -> io handlers for in/out
+                  DX = start port range
+                  CX = size port range
+              out: EAX = handle
+
+      7       Reset trapped IO port range
+              in: EDX = handle
+
+      8       Simulate IO
+              in: BX = flags
+                  bit 0: 0=IN[S], 1=OUT[S]
+                  bit 3-15: bits as set in error code ( see below )
+                  DX = port ( if BL[3]=1 or BL[6]=0 )
+                  DS:E/SI -> value(s) ( if BL[0]=1 and BL[3]=1; OUTS ) 
+                  ES:E/DI -> buffer ( if BL[0]=0 and BL[3]=1; INS )
+                  ECX = value for al/ax/eax ( if BL[3]=0; IN/OUT )
+                      = count ( if BL[3]=1 and BL[7]=1; REP INS/OUTS )
+              out: EAX: if BL[3] = 0, is initialized with value of ECX,
+                        and, if IN, (partly ) modified.
+
+      9       Trap CLI/STI
+              in: CX:E/DX = trap handler for CLI or STI (0:0 resets )
+                  BL: 0=CLI, 1=STI
+              
+     10       Simulate HW interrupt [not yet implemented]
+  
+
+  2) IO Port trapping ( AX=6 )
+
+  DS:E/SI -> TRAPPROCS structure:
+
+   TRAPPROCS struct
+     FARPROC ?	; proc to handle IN[S] instructions
+     FARPROC ?	; proc to handle OUT[S] instructions
+   TRAPPROCS ends
+
+  FARPROC is FAR16 for 16-bit, FAR32 for 32-bit.
+
+  If a trapped port is accessed, the host will call the handler proc like it
+  calls exception handler procs. Error code is setup like this:
+
+  Bits      Information
+  ---------------------------------------------------------
+  0-2       size of instruction
+  3         0=IN/OUT, 1=INS/OUTS (string instruction)
+  4-5       IO size: 00=byte, 01=word, 11=dword
+  6         if IN/OUT: 0=port in DX, 1=port in bits 8-15
+            if INS/OUTS: 1=hiword ESI/EDI/ECX not to be used
+  7         1=REP prefix detected
+  8-15      if IN/OUT and bit 6=1: port
+  8-15      if OUTS: segment prefix; 26/2E/36/3E/64/65 or 00
+
+  The proc MUST handle the exception, that is, (at least) EIP must be changed,
+  or it will instantly be called again.
+
+  3) CLI/STI trapping ( AX=9 )
+
+   On entry, HDPMI has already changed the IF ( cleared IF for CLI, set IF for
+  STI ). For performance reasons, there's no stack switch; the handler proc
+  must exit with an IRET/D, which will directly return to the interrupted
+  ring3 code. All registers must be preserved.
+   If CR4 PVI is set, no exception is triggered on CLI/STI, hence the handler
+  won't be called ( for STI, this isn't entirely true: if the VIP flag is set,
+  an exception is generated; as for HDPMI, it will never set this bit ).
+

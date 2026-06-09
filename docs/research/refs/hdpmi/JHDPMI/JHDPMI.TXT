@@ -1,0 +1,97 @@
+
+ 1. About
+
+  JHDPMI is a JLM ( Jemm Loadable Module) that allows to hook into the v86-mode
+ interrupt chain, without modifying the IVT. This ensures the client will be
+ the very first to be called when an IRQ is triggered, no matter what the
+ corresponding vector in the IVT is telling.
+  There are 2 variants of the hook API: the first and simplest method
+ expects a v86-mode vector that will be called if the interrupt occurs.
+ The second method is for VCPI clients only; they may be notified directly
+ by the VCPI host, without making a detour through v86-mode.
+
+
+ 2. Install/Uninstall JHDPMI
+
+ JHDPMI requires Jemm (JemmEx/Jemm386) to be loaded. It then can be installed
+ either as a device driver in CONFIG.SYS:
+
+   DEVICE=JLOAD.EXE JHDPMI.DLL
+
+ or as a TSR from the command line:
+
+   JLOAD JHDPMI.DLL
+
+ To uninstall, use JLOAD's -u option:
+
+   JLOAD -u JHDPMI.DLL
+
+
+ 3. Using JHDPMI
+
+ The intended usage is for HDPMI to ensure it's the first to get interrupts
+ that occur in v86-mode, without the rather tedious ( and not always well
+ functioning ) need to install hooks in the IVT. But JHDPMI may be useful
+ for other purposes as well.
+
+
+ 4. Technical Details
+
+ JHDPMI supplies a real-mode interface. The Carry flag indicates an error.
+ Device ID is 4858h, functions are:
+
+ AX=0000h: Get Version
+      out: AX=version (0x100 currently)
+ AX=0001h: connect
+       in: -
+      out: -
+ AX=0002h: disconnect
+       in: -
+      out: -
+ AX=0003h: Hook Interrupt for v86 program
+       in: BL=interrupt# to hook
+           CX:DX=real-mode CS:IP to call
+       C if BL invalid or no free entry in hook stack anymore.
+ AX=0004h: Unhook Interrupt
+       in: BL=interrupt# to unhook
+       C if interrupt is not hooked.    
+ AX=0005h: exchange current hook vector
+       in: BL=interrupt#
+           CX:DX=real-mode CS:IP to call
+      out: CX:DX=previous real-mode CS:IP
+       C if interrupt is not hooked or hooked in VCPI mode.
+ AX=0011h: Hook Interrupt in VCPI mode.
+       in: BL=interrupt# to hook
+           CX:DX=linear address of a VCPI_V86ToPM mode switch struct;
+           must be located in first MB.
+       C if BL invalid or no free entry in hook stack anymore.
+       The protected-mode hook proc will be entered with EDI=linear address
+       of a Client_Reg_Struc that contains the V86 register status. Be aware
+       that the switch from VCPI host to client will neither set a stack nor
+       initialize segment registers DS/ES/FS/GS.
+ AX=0012h: Display status
+       in: -
+      out: -
+
+  Currently the interrupts that can be hooked are restricted to:
+ - 08h-0Fh (IRQ0-IRQ7)
+ - 1Ch
+ - 70h-77h (IRQ8-IRQ15)
+
+ JHDPMI will refuse to unload if
+   a) a connection is still active or
+   b) an interrupt is still hooked.
+
+ An interrupt may be hooked multiple times, there's a stack implemented, that
+ is, the unhook function will restore the previous value. The total number of
+ hooks, however, is limited to 255.
+
+ Jemm v5.84+ is required. 
+
+
+ 5. License
+
+ JHDPMI is Public Domain.
+
+ Japheth
+

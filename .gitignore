@@ -1,0 +1,68 @@
+# macOS / OS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Editor / IDE / machine-specific
+.vscode/
+.idea/
+
+# Kernel build outputs (rebuilt via `make` in src/)
+src/build/
+src/kernel.bin
+src/kernel.dos.bin
+src/kernel.dos.flat
+src/kernel.pure.bin
+src/kernel.pure.flat
+src/**/*.o
+src/test/*.bin
+src/test/*.COM
+src/test/TEST.COM
+
+# Pinecone test client (rebuilt via `make` in pinecone/)
+pinecone/build/
+pinecone/DESKTOP.exe
+pinecone/DESKTOP.EXE
+
+# DOS app build outputs (sources kept: src/dos_apps/*.asm)
+src/dos_apps/*.COM
+src/dos_apps/*.EXE
+src/dos_apps/*.exe
+src/boot/*.com
+PINE.COM
+SYSMON.COM
+src/PINE.COM
+src/SYSMON.COM
+
+# Floppy / HDD disk images (rebuilt by Makefile from raw FAT layouts)
+*.img
+
+# Third-party content (users supply their own — see README)
+src/dos_files/COMMAND.COM
+doom/
+doom.ZIP
+
+# Cross-compiler tree (users install DJGPP + i686-elf separately)
+# tools/build-pure-usb.py is kept (image builder); cross-compiler subdirs excluded
+tools/i386-elf/
+tools/i686-elf/
+tools/djgpp/
+tools/djgpp_*
+
+# Vendor specification PDFs — refer to canonical sources per README + THIRD-PARTY.md
+# (markdown digests and per-spec READMEs under docs/research/refs/ are kept)
+docs/research/refs/*.pdf
+docs/research/refs/**/*.pdf
+
+# Workflow / session files — not part of the public release
+SESSION-STATE.md
+SESSION-METRICS.md
+docs/ref/AI-REFERENCE.md
+
+# Debug helper scripts (machine-specific paths)
+src/gdb-*.gdb
+
+# Local logs and traces
+*.log
+src/kernel/build_info.c

@@ -1,0 +1,948 @@
+ 
+ History HDPMI 
+
+  __.__.____, version 3.24
+
+  þ optional extension a for cmdline option -x added.
+  þ int 31h, ax=508h: top of memory check (?TOPMEM) activated.
+  þ optional variant added that's "NMI-safe" and routes NMIs to real-mode.
+  þ real-mode calls ( int 31h, ax=300/301/302 ) will no longer have an
+    impact on standard real-mode segment register values (MS Win9x compatible).
+
+  13.10.2025, version 3.23
+
+  þ fixed int 25h/26h, cx != -1: don't copy (non-existing) diskio struct to
+    TLB!
+  þ int 31h, ax=0B00h: support DH=3 (I/O watchpoint).
+  þ documented that register DR7 is saved/restored when a client starts/ends.
+  þ fixed int 21h, ax=71a7h, bl=0: src must be ds:e/si, but es:e/si was used.
+  þ switch ?SAVESSESPONINIT now always 1; should fix problems with IRQs
+    handled by a client while another client is initializing.
+  þ fixed int 31h, ax=503h/505h: if base address of resized block had to
+    change, the block's owner was set to the current client.
+  þ INT 96h (IVT) is now used only if HDPMI=8192 is set.
+  þ setting HDPMI=8192 now runs an INT3 instead of setting the trace flag.
+  þ fixed regression in v3.22: interrupts are no longer masked during exc
+    display, since this may have caused the system to freeze.
+  þ fixed int 31h, ax=302h: clear IF in current flags, similar to ax=300h.
+  þ fixed int 31h, ax=301h: real-mode CS:IP was stored in a global variable
+    and may have been overwritten if IF=1.
+
+  24.03.2025, version 3.22
+
+  þ fixed regression in v3.21: int 25h/26h caused a GPF in ring 0.
+  þ fixed: int 31h, ax=507h: reject all page types except 0, 1 and 3; OTOH,
+    allow direct transition from "mapped" to "committed".
+  þ fixed: RF was lost when an IRQ returned and a stack switch was to happen.
+  þ fixed: hiword(ecx) may have been != 0 in ResizeLDT(), resulting in a severe
+    host crash.
+  þ kernel debugger API ah=45h, int 68h, called if kd detected.
+  þ support for jhdpmi JLM. Support is enabled for both HDPMIxx and HDPMIxxi.
+  þ fixed: VCPI detection was skipped if any tsr responded to Int 2fh, ax=1600h.
+  þ interrupt handling reworked; cmdline option -i removed.
+  þ fixed: option -a (or HDPMI=32) didn't correctly restore region 
+    3FFC000h-3FFF000h of the calling client.
+  þ fixed: page mgr may have returned too much XMS memory if there were just
+    1-3 kB free.
+  þ int 31h, ax=80xh: count added - region is released when count reaches 0.
+  þ fixed int 21h, ah=38: for 32-bit, check for edx == -1.
+
+  04.02.2024, version 3.21
+
+  þ fixed: reset PAE in CR4 only if ensured cpu is in real-mode - previously
+    it caused a crash in Qemm if loaded with NOEMS.
+  þ IRQ routing: if interrupt hasn't been modified by a client, route IRQ
+    to the real vector in the IVT, not to the internally stored one.
+  þ HDPMIxxi: fixed SimulateIO function.
+  þ HDPMIxxi: max trap ranges doubled ( 4 to 8 ).
+  þ HDPMIxxi.exe are now linked as PE binaries. As with the standard veriants,
+    this ensures that 32-bit code and data won't share pages.
+  þ HDPMIST: option -t added to display TSS infos.
+  þ HDPMIxxi: new API function 9 to trap CLI/STI.
+  þ cmdline option -x got an optional shift factor.
+  þ fixed: int 31h, ax=507h may have lasted rather long if 0 page attributes
+    were to set.
+ 
+  28.01.2023, version 3.20
+
+  þ fixed: pmstate variable moved to client-specific data region. This
+    bug was virtually irrelevant up to v3.19, but there it may have caused
+    a crash followed by DOS memory corruption.
+  þ fixed: in int 21h, ah=4Bh translation, try to translate only if al=0,
+    as it is and was documented.
+  þ fixed: in v3.19, if HDPMI=32 wasn't set, the required DOS memory was
+    reported too high if at least one client was already active.
+  þ fixed: raw mode switches to protected-mode didn't set a helper variable
+    that's used to distinguish IRQs and exceptions. As a consequence,
+    exceptions were then treated as IRQs, causing a crash.
+  þ int 25h/26h, displays in debug version: register esi was modified!
+  þ set error status ax=0211h if int 25h/26h TLB overflow occurs.
+  þ int 25h/26h and int 21h, ax=7305h transfer limit was actually
+    7.5 kB, since a part of the TLB was used for the diskio packet.
+    This is now copied to the RMS, so the full TLB is used for sector
+    transfers.
+  þ if exception occurs inside the host's default exception handling
+    ( that tries to execute an int 21h, ax=4Cffh ), the client will
+    be killed ( and the host, if installed residently, will terminate,
+    if possible ).
+  þ vendor API "HDPMI" now available in release version. Allows to
+    "disable" host or to switch on/off HDPMI=32.
+  þ a disabled host will be reenabled when a client terminates.
+  þ the HDPMI variants that run clients with IOPL=0 have now a full
+    8 KB IOPB, zeroed. They are included in HXRT, with an "i"-suffix.
+  þ enabled kernel debug API for the standard version.
+  þ port trapping API added for HDPMI variants that run clients with IOPL=0.
+  þ fixed: exc 0Dh in ring 0 for hdpmi16 was not detected reliably.
+
+  30.03.2022, version 3.19
+
+  þ fixed regression in v3.18: HDPMI32 & HDPMI16 couldn't be installed 
+    simultaneously.
+  þ fixed regression in v3.18: a raw-mode switch to protected-mode from
+    code that was called via DPMI function 0x300|1|2 may have caused a
+    host stack corruption under certain conditions.
+  þ fixed in int 31h, ax=801h: the mapped region wasn't found (and hence
+    an error returned) if bits 0-11 weren't zero.
+  þ fixed int 31h, ax=509h: function did just map physical memory; now
+    it copies PTEs, which was the intention.
+  þ fixed int 31h, ax=503h/505h: resizing was rejected if block contained
+    "mapped" pages (included thru functions 508h/509h).
+  þ fixed int 31h, ax=503h/505h: resizing may have failed if the block's
+    address space was previously used to map a device (int 31h, ax=800h).
+  þ bugfix debug version: crash may have occured due to "16-bit" strings
+    that weren't fully copied.
+  þ fixed int 31h, ax=800h: under certain conditions, physical pages in
+    page pool may have "get lost", if HDPMI was installed residently.
+  þ fixed exception handling: in case a client used v1.0 functions to set
+    an exception handler, the LPMS remained in status "used" after first
+    exception.
+  þ DPMI function 0Eh (get coprocessor state): a 80487 is returned
+    instead of an 80387 if cpu is 80486+.
+  þ CR0.NE flag is no longer modified; that makes cmdline option -t 
+    obsolete. It has been removed, as well as environment switch 
+    HDPMI=32768. Instead, the default handler for interrupt 75h (Irq 0Dh)
+    will trigger a numeric exception 10h.
+  þ error msg "VCPI host has remapped PICs" changed to "VCPI host reports
+    remapped IRQs".
+  þ hdpmi debug displays (debug version only) may have caused an exc 00 if
+    the current screen resolution had 128 colums.
+  þ added HDPMIST.EXE, to display status of currently running HDPMI hosts.
+  þ exhaustion of locked protected-mode stack will exit with fatal error.
+  þ error codes returned in AX for int 31h, ax=503h/505h.
+  þ disabled code for int 2Fh, ax=168a, ds:e/si="VIRTUAL SUPPORT" (32rtm).
+  þ Regress16 directory added - 16-bit test cases.
+
+  08.09.2018, version 3.18
+
+  þ bugfix: nested real-mode stack handling did not work reliably
+    if nesting level was > 1.
+  þ bugfix: TLB was not allocated in an UMB if HDPMI itself was loaded
+    low.
+  þ bugfix: options -a and -i were incompatible and caused a crash if 
+    nested execution of two clients occured.
+  þ bugfix: int 33h API translation for mouse event procs may not have
+    worked reliably if the clients did set the event procs concurrently.
+  þ bugfix: in exception frame for DPMI v1.0 the field PTE wasn't set
+    for page faults.
+  þ bugfix: int 31h, ax=8 (set limit of descriptor): if limit was >= 1 MB,
+    it wasn't checked that lowest 12 bits of DX were all 1.
+  þ bugfix: if a client allocated large amounts of descriptors and then
+    launched another client, the descriptors that this new client allocated
+    weren't automatically released.
+  þ bugfix: HDPMI didn't expect the CR0.WP bit to be set and crashed.
+  þ HDPMI will now use DOS for its output if an exception occurs.
+    There is no longer any query if the client or the server is to
+    be terminated; also, video mode is never altered by the host, making
+    cmdline switch -k obsolete.
+  þ HDPMI does no longer intercept int 09h to detect if ctrl-alt-del
+    is pressed. Instead it intercepts int 15h, ah=4Fh. This avoids reading
+    the keyboard controller data port 60h, which should be done by the
+    keyboard driver only.
+  þ the memory handling in "Int15" or "raw" mode has been changed. HDPMI
+    will now report the amount of memory that was and is not used by a
+    client as free via Int 15h, ax=E801h.
+  þ if option -a is used ( or HDPMI=32 is set ), the first client won't 
+    need additional DOS memory for a "cloned host".
+  þ the standard version of HDPMI will now allocate the host stack in
+    extended memory. The host stack size has been increased from 2 to 4 kB.
+  þ HDPMI does no longer respond to int 2Fh, ax=160Ah. So emvironment switch
+    HDPMI=16384 is obsolete and has been removed.
+  þ special register moves are no longer emulated if option -s is given.
+  þ hdpmixx.exe are now linked as PE binaries in the "standard" version. This
+    ensures that 32-bit code and data won't share pages.
+
+  09.10.2013, version 3.17
+
+  þ bugfix: when int 33h, ax=000Ch or ax=0014h was used by a client,
+    HDPMI might have corrupted DOS memory on exit.
+  þ Linker switched to jwlink (modified wlink).
+  þ new cmdline switch -x to restrict free memory to 256MB.
+  þ better XMS handling if there are "holes" in XMS memory.
+  
+  20.01.2009, version 3.16
+
+  þ Assembler switched to JWasm.
+  
+  01.03.2008, version 3.15
+  
+  þ bugfix: int 31h, ax=507h didn't return number of processed pages
+    in ECX if function failed.
+  þ bugfix: an exception 11h might have occured inside hdpmi's cpu test
+    if CR0 AM bit was set on init.
+  þ bugfix: translation of int 21h, ax=7305h didn't set realmode-DS
+    to TLB, making the call fail under certain conditions.
+  þ int 31h, ax=507h now returns error code 8013h if functions fails 
+    because of lacking free physical memory.
+  þ XMS memory allocation strategy slightly changed to avoid running out
+    of XMS handles if client allocates just small portions and number
+    of XMS handles is limited to 32.
+  þ kernel debugger support split into WDEB386 and 386SWAT. Int 22h (Win386)
+    protected-mode debug "API" disabled.
+  þ Exception 11h (alignment fault) is now supported.
+  þ HiWords of general purpose registers preserved on initialization.
+  þ CR0 MP and EM bits are now cleared for the first client only. This
+    allows to implement an FP emulator DPMI TSR.
+  
+  11.01.2008, version 3.14
+
+  þ IOPL0 version only: added support for string IO.
+  þ group names changed to allow linking HDPMI object modules into other
+    binaries.
+  þ "stub" version of HDPMI (HDPMI32.BIN) added.
+  þ bugfix: translation of int 15h, ax=C207h (set PS/2 mouse event proc),
+    has caused a GPF if called with ES=0.
+  þ bugfix: if client used Int 33h translations, set a mouse event proc
+    and HDPMI wasn't installed residently, a memory corruption may have
+    occured on host exit.
+  þ bugfix: int 31h, ax=506h didn't work correctly for mapped pages (int
+    31h, ax=508h/509h). It returned them as "committed".
+  þ bugfix: a missing "assume" caused a destructive write to memory in
+    HDPMI's conventional memory portion (XMS mode).
+
+  15.07.2007, version 3.13
+
+  þ bugfix: the EMS handle allocated in v3.12 might have been released 
+    multiple times if HDPMI was installed with option -a or HDPMI=32 was
+    set. This could have affected other applications using EMS.
+  þ bugfix: the EMS handle allocated in v3.12 wasn't released if host
+    ran out of memory on init.
+  þ bugfix [HDPMI16 only]: translation for int 21h, ax=7160h used ES:EDI
+    as target for translated name. Corrected to use ES:DI only.
+  þ bugfix: commandline option -m didn't work in v3.07-v3.12.
+  þ real-mode callbacks are disabled and mouse is reset before requesting
+    key for client/server termination in the default exception handler.
+  þ options -n, -k implemented.
+  þ option -g implemented in source (currently deactivated) to prohibit
+    usage of INVLPG opcode.
+  þ an additional 4k page is allocated on startup, which avoids a possible
+    GPF if free extended memory on init is small (<= 3 MB).
+
+  15.03.2007, version 3.12
+
+  þ bugfix (HDPMI16 mainly): if int 31h, ax=0100h succeeded to alloc DOS 
+    memory, but no more LDT descriptors were available, the call returned with
+    Carry set, but the DOS memory block wasn't released.
+  þ bugfix (HDPMI16 only): if int 31h, ax=102h failed because of insufficient
+    descriptors, it didn't reset the memory block's size to its previous
+    value.
+  þ bugfix (HDPMI16 only): int 21h, ah=48h, BX=-1 did return a valid memory
+    block. Now it fails in any case, returning free memory (max. FFFEh) in
+    register BX (similar to Win9x' DPMI host).
+  þ bugfix: if the XMS hook chain did contain a hooker which doesn't
+    start with 0EAh/0EBh, HDPMI has caused a crash.
+  þ bugfix: error condition DOS < v4 caused a garbage display.
+  þ allocated size of dynamic TLB was still 0FFF0h, though 0FE00h bytes were
+    used only.
+  þ on FATAL exceptions now value of CS:EIP is additionally displayed.
+  þ before calling XMS "query free memory" register BL is set to zero.
+    Makes HDPMI work better with some (old) XMS hosts.
+  þ minimal DOS version required to run HDPMI is now v3.3.
+  þ if a EMM/VCPI host is detected, an (empty) EMS handle is allocated on
+    startup to ensure the EMM host keeps ON and installed.
+  þ the host now uses the DOS SDA (swappable data area) if it needs to know
+    the current PSP segment for internal reasons.
+
+  14.12.2006, version 3.11
+
+  þ bugfix: if a client allocated very large uncommitted memory blocks,
+    HDPMI may have grabbed (almost) all XMS memory.
+  þ bugfix: on init option -i may have caused a stack exception if HDPMI was 
+    running in VCPI mode.
+  þ bugfix: int 21h, ah=4Ah first increased memory block and then tried
+    to alloc additional descriptors (16-bit only). If there were not enough
+    descriptors, the function failed, but the memory block kept its new
+    size, thus wasting memory.
+  þ size of dynamic TLB reduced from 0FFF0h to 0FE00h, which increases
+    speed of large file read/write operations in FreeDOS/DR-DOS.
+
+  15.10.2006, version 3.10
+
+  þ bugfix: the routine which checked whether an XMS memory handle could be 
+    released (relevant only if HDPMI is installed with -r) may have caused
+    a GPF.
+  þ bugfix: translation for int 21h, ax=6300h checked carry flag if dos call
+    was successful, but this call returns AL=00 in case of success instead.
+  þ bugfix: if Ctrl-Alt-Del is detected, there is no longer an int 21h,
+    ax=4CFFh issued in protected-mode if current PSP is not the one of the
+    active client.
+  þ bugfix: int 4Bh, ax=8102h (get VDS version) was not routed to real-mode,
+    but since it uses no pointers it should be routed.
+  þ the VDS functions which expect a pointer to a DDS in ES:E/DI (03-04, 
+    07-0A) are now  translated and routed to v86-mode.
+  þ VDS functions 05h and 06h are handled by HDPMI.
+  þ int 21, ah=4Ah translation: if memory block to resize is in conventional
+    memory, now the error code received from real-mode dos is returned.
+    Previously it always returned ax=8 and available paragraphs in E/BX.
+  þ when installed permanently with -r HDPMI now grabs less XMS memory.
+  þ Int 31h, ax=0000: if the request has no chance to be successful (too
+    many descriptors requested), size of LDT now remains unchanged.
+  þ new value for environment variable HDPMI:
+    32768 - prevent HDPMI from touching CR0 NE bit.
+
+  14.09.2006, version 3.09
+  
+  þ bugfix: if DOS int 21h, ax=440Dh did not require translation, it may
+    have returned with Carry set, but in fact did not call DOS at all.
+  þ bugfix: translation for int 26h, cx=ffffh (FAT16 absolute disk write)
+    may have caused data corruption on the drive, translation for int 21h,
+    ax=7305h, si[0]=1 (FAT32 absolute disk write) failed in any case.
+  þ when running under a VCPI host, bit 1 in host flags (int 31h, ax=0400h)
+    returned in BX will now be cleared.
+
+  15.08.2006, version 3.08
+
+  þ mode switches now slightly faster when running as VCPI client.
+  þ bugfix: exceptions during initialization while no client is running yet
+    (inside a VCPI memory function for example) weren't handled properly,
+    which made the system unstable and required a reboot.
+  þ bugfix: option -a used on a system with VCPI but no XMS may have caused
+    troubles on nested execution of clients.
+  þ bugfix: the default exception handler displayed garbage as client's
+    CS:EIP and SS:ESP on ring 0 exceptions if there was no client running
+    (host idle or initializing).
+  þ HDPMI v3.07 was not compatible with VMware, because VMWare seems to not
+    properly emulate the 80386 paging TLB. Workaround implemented.
+  þ cmdline options -v and -y added.
+  þ in raw mode port 92h ("fast" A20 gate) is no longer touched if BIOS
+    is telling that this method is not available.
+
+  21.07.2006, version 3.07a
+
+  þ bugfix: environment variable HDPMI=512 didn't work in v3.07.
+
+  15.07.2006, version 3.07
+
+  þ bugfix: if the host run more than one client, it may have modified
+    the real-mode stack of previous client during client termination.
+  þ optionally run each client in its own address context
+  þ meaning of value 32 for environment variable HDPMI changed. The previous
+    meaning is now achieved by setting HDPMI=16384 (which is rarely used).
+  þ new cmdline options -i, -s and -v.
+  þ the HDPMI binary now is linked so that the DOS loader will load the
+    real-mode part only. The protected-mode part is loaded delayed, which
+    allows to load HDPMI in much smaller UMBs.
+  þ HDPMI will now use the TLB of any instance of the host found in
+    memory, enabled or disabled.
+  þ additional security check if a parent psp has to be translated back
+    to a segment.
+
+  14.06.2006, version 3.06
+
+  þ new value for environment variable HDPMI:
+    8192 - break into client after initial switch to protected mode.
+
+  15.05.2006, version 3.05
+
+  þ bugfix: int 31h, ax=0101h may have caused an exception if selector of  
+    memory block to free was contained in DS.
+  þ bugfix: in previous versions the real-mode DTA was set permanently to the
+    hosts's PSP+80h. This apparently was a problem for some clients not using
+    the host's DOS translation services (F-PROT.EXE).
+  þ bugfix: if int 31h, ax=101h|102h did not fail it still returned with a
+    modified AX register
+  þ bugfix: int 21h, AH=4Ah returned with modified AX register.
+  þ bugfix: int 31h, AX=050Bh returned 0 in "maximum locked bytes" field. Now
+    the "free" bytes are returned.
+  þ bugfix: int 31h, ax=0507h didn't work with ECX=0 in versions 3.02-3.04
+    (32RTM.EXE does such a call and expects it to succeed)
+  þ bugfix: cmdline option -u didn't work if environment variable HDPMI=1
+    was set and HDPMI run as VCPI client.
+  þ bugfix: raw mode switch to protected mode may have enabled interrupts
+    one instruction too early, which caused a GPF if a IRQ occured.
+  þ CR4 now displayed by default exception handler
+  þ default exception handler no longer makes assumptions about value of SS
+    if an exception occured in ring 0.
+  þ some free entries in GDT added which is required by 386SWAT to debug
+    VCPI clients.
+
+  02.05.2006, version 3.04
+
+  þ bugfix: in Int15/raw mode only part of physical memory was used
+  þ bugfix: HDPMI installed with option -r and DOS memory included in
+    page pool (HDPMI=2) didn't work reliably.
+  þ bugfix: translation for Int 33h, ax=0016h (save driver state) didn't
+    work.
+  þ bugfix: freeing a real-mode callback which was already free didn't
+    set the carry flag.
+  þ bugfix: total physical memory reported by Int 31h, ax=0500h was too low
+    after more than 1 XMS memory block was allocated.
+  þ bugfix: free pages reported  by Int 31h, ax=0500h now are the true
+    free physical pages. Previously it was just the same value as in field
+    "max unlocked page allocation". 
+  þ XMS memory handles (except the first one) now released if a resident
+    installed HDPMI enters idle state (no client running).
+  þ CR0 no longer saved/restored when a client starts/exits, just the
+    FPU bits are maintained on the client level (to support Int 31h, 
+    ax=0E0xh). CR0 MP bit is no longer reset on initialization. 
+    Meaning of cmdLine option -t changed to "don't touch NE bit", 
+    previously it was "do reset NE bit".
+  þ in Int 31h, ax=0500h VCPI host was called if no free XMS pages exist
+    anymore. This is a problem with at least one popular VCPI host and
+    should therefore be avoided.
+  þ now flags are saved/restored in Int 15h/2Fh real-mode hook procs
+  þ new value for environment variable HDPMI:
+    4096: make pages for GDT, IDT, LDT readonly
+
+  21.04.2006, version 3.03
+
+  þ bugfix: in V3.02 API translation Int 21h ah=29h didn't work for 16-bit
+    clients.
+  þ bugfix: in V3.02 routing interrupts 78h - FFh to real-mode didn't work
+  þ bugfix: client initialization errors (out of memory or selectors) 
+    may have left the system unstable.
+  þ bugfix: low memory conditions on host initialization may have left the
+    system unstable.
+  þ in previous versions HDPMI needed some pages to be temporarily mapped
+    in page table 0 on startup, which may cause a problem in VCPI mode
+    if there are no free PTEs left. Now this temporary mapping is no longer 
+    needed.
+  þ command line option -b added to further reduce DOS memory usage.
+  þ missing LFN translations (ax=71A7h, 71A8h and 71AAh) added.
+  þ DPMI v1.0 functions to get/set multiple descriptors (int 31h, 
+    ax=000Eh/000Fh) implemented
+  þ DPMI v1.0 functions to get/set exception handlers for protected-mode
+    (int 31h, ax=0210h/0212h) implemented
+  þ DPMI v1.0 "exception restartability" supported.
+
+  12.04.2006, version 3.02
+
+  þ bugfix: internal function to alloc XMS memory was unable to detect
+    a XMS host failure in V3.01.
+  þ bugfix: change in V1.87 caused the critical error interrupt (INT 24h)
+    to not work reliably.
+  þ bugfix: resize linear memory block (Int 31h, ax=0505h) did always
+    commit the added pages (ignored bit 0 of edx).
+  þ GDT now moved to extended memory (unless switch HDPMI=512 is set).
+  þ rest of missing DPMI v1.0 memory functions implemented:
+    ax=505h: segment descriptor update now supported
+    ax=508h: map device in memory block
+    ax=509h: map conventional memory in memory block
+    ax=50Ah: get memory block size and base
+    ax=50Bh: get memory information
+  þ API translation Int 33h, ax=0016h and ax=0017h wasn't documented.
+  þ new value for environment variable HDPMI:
+    2048: clear hiword of ESI/EDI on client's initial switch to protected
+          mode.
+
+  07.04.2006, version 3.01
+
+  þ bugfix: int 21h, ah=4F (find next file) in v3.0 may have caused
+    data corruption.
+  þ some more data moved into extended memory to free conventional DOS
+    memory.
+  þ new value for environment variable HDPMI:
+    1024: disable support for DPMI v1.0 memory functions
+
+  04.04.2006, version 3.0
+
+  þ HDPMI32 and HDPMI16 will share a TLB, which reduces conventional
+    memory consumption by 8 kB if both hosts are loaded residently.
+  þ host code running in protected mode moved to extended memory.
+    This reduces HDPMI's conventional DOS memory usage from about
+    32 kB to 14-15 kB (including a 8 kB TLB).
+  þ host protected-mode code now runs in a 32-bit code segment.
+  þ use VCPI memory allocation if no XMS host found.
+  þ new values for environment variable HDPMI:
+    128: disable LFN API translation
+    256: enable HMA mapping in protected mode if HDPMI runs as VCPI client
+    512: allocate IDT and LDT in client address space (SBPCI problem)
+
+  21.03.2006, version 2.07
+
+  þ bugfix: internal function to call a real-mode interrupt cleared
+    the carry flag before calling the INT. This caused troubles with
+    LFN functions on MS-DOS < 7 and DR-DOS.
+  þ bugfix: trying to terminate a client if Ctrl-Alt-Del was pressed
+    didn't work for HDPMI16.
+
+  20.03.2006, version 2.06
+
+  þ Exception 05 is no longer routed to real-mode. It is still routed
+    to protected mode Int 05, though. To real-mode is will only be routed
+    if it is a programmed INT 05, else the client will be terminated.
+  þ bugfix: default exception handler didn't display a register dump.
+  þ small code size reduction.
+
+  18.03.2006, version 2.05
+
+  þ bugfix: strings displayed with int 21h, ah=9 weren't checked if their
+    size exceeds size of TLB.
+  þ debug exceptions now detected by examining DR6, not by content
+    of cs:eip or trace flag.
+  þ added a test in raw mode if size of extended memory between 1 MB and 16 MB
+    as returned by Int 15h, ax=e801, does not exceed 15360. Else this function
+    is regarded as 'not implemented' (required for DosBox in raw mode).
+  þ test if vector is 0000:0000 before calling Int 68h in real-mode.
+    This makes HDPMI compatible with DosBox (tested with DosBox V0.63).
+  þ bugfix: int 31h, ax=090xh didn't work in HDPMI16.
+  þ int 31h entry in IDT now directly jumps into the host's int 31h
+    handler, which improves this int's speed (especially useful for virtual
+    interrupt functions, which are now 4 times faster than before). 
+
+  06.02.2006, version 2.04
+
+  þ HDPMI16 and HDPMI32 now both may be installed resident concurrently.
+  þ ES, FS and GS selectors caches now updated after int 31h, ax=000Ch
+    has modified a descriptor.
+
+  22.01.2006, version 2.03
+
+  þ check if VCPI host has remapped PICs. Exit with error 6 if this
+    is true.
+  þ supply some extra bytes of stack space to make HDPMI run
+    with QEMM V8+V9 VCPI hosts.
+
+  29.12.2005, version 2.02 
+
+  þ bugfix: freeing memory (int 31h, ax=502h) or setting page
+    attributes (int 31h, ax=506h) did not invalidate the TLB
+    entries. This may have caused problems on some conditions.
+
+  18.11.2005, version 2.01
+
+  þ small size reduction
+
+  30.10.2005, version 2.00
+
+  þ default exception handler now sends an EOI to slave PIC if
+    any interrupt is in service.
+
+  15.10.2005, version 1.99
+
+  þ default exception handler now sends an EOI to master PIC if
+    any interrupt is in service.
+
+  27.09.2005, version 1.98
+
+  þ functions int 31h, ax=506h and ax=507h now accept ecx=0
+    (number of pages) to make 32rtm.exe not complain about
+    insufficient extended memory.
+  þ bugfix: versions 1.89-1.97 of HDPMI32.EXE may have caused
+    a stack exception on 80386 + 80486 cpus when client has
+    just switched to protected mode. HDPMI32 used a 16-bit
+    IRET to return to the client, but this may have trashed
+    hiword of ESP.
+
+  16.09.2005, version 1.97
+
+  þ if HDPMI is resident real-mode vectors are now restored after last client
+    has terminated. Previously it was done when HDPMI was uninstalled.
+  þ new switch HDPMI=64 implemented.
+  þ bugfix: Unsupp\HDPMI16.EXE had a bug in int 2Fh, ax=1684h
+    making it unable to run windows 3.1.
+  þ bugfix: if int 31h, ax=504h, ebx=0 failed it returned with modified EBX.
+  þ bugfix: using DOS memory for the page pool (HDPMI=2) didn't
+    take into account a bug in many DOS versions where a failed
+    call to resize a memory block made this block as large as possible.
+  þ bugfix: allocating linear memory with int 31h, ax=504h, ebx!=0
+    may have failed, but Carry flag wasn't set. This occured if a
+    memory block was allocated previously with a higher linear address.
+
+  06.09.2005, version 1.96
+
+  þ exc 09 checks disabled if cpu is 80486+.
+
+  18.08.2005, version 1.95
+
+  þ flag for RMS usage implemented. This allows in raw jump to
+    protected mode to not touch current RMS if it is not in use.
+    (the win9x dpmi host has problems with this constellation).
+
+  13.08.2005, version 1.94
+
+  þ bugfix: a mode switch may have changed values of the FPU emulation bits
+    in CR0. Now all bits of CR0 except PE and PG are copied between modes.
+  þ translation for int 21h, ah=69h added. Previously calling this function
+    failed with an error message displayed.
+
+  30.07.2005, version 1.93
+
+  þ mov CRx,reg now emulated. This feature (mov CR0, reg) is required by
+    some clients (MS C v7.0 [16-bit]).
+  þ XMS handles are now released after HDPMI has finally switched to
+    real-mode. The previous behavior seemed to cause problems with
+    Bochs/Qemu running HDPMI.
+  þ documentation of HDPMI error codes 8 and 9 was wrong
+  þ new switch HDPMI=32 implemented
+  þ bugfix: environment switch HDPMI=16 didn't work
+  þ owner psp of dyn TLB memory block set to psp of current client. This
+    may avoid memory leaks if Ctrl-C is pressed while reading the console
+    with int 21h, ah=3Fh.
+  þ previous versions of the 16-bit host HDPMI16 used 286-interrupt gates
+    to switch from ring-3 to ring-0 protected mode, thus loosing HIWORD of
+    the client's ESP. Now such transfers are done thru 386-interrupt gates
+    and the client's ESP remains untouched. This finally makes IR41.DLL 
+    (16-bit Intel Indeo video codec for Windows 3.1) work with HDPMI16.
+
+  20.07.2005, version 1.92
+
+  þ bugfix: HDPMI may have frozen the machine on initialization
+    errors (low memory)
+  þ bugfix: in raw mode switch 'real-mode to protected mode' now the
+    real-mode ss:sp is stored as current real-mode stack, because
+    the previous stack cannot be used anymore, it is "busy".
+  þ bugfix: int 31h, ax=0401h didn't return the correct host
+    minor version number.
+  þ bugfix: translation of int 25h/26 (absolute disk read/write)
+    may have overwritten 2 bytes in the host's code segment.
+  þ bugfix: dpmi functions int 31h, ax=0301h/0302h didn't work
+    in version 1.91 if stack parameters had to be copied.
+  þ new environment flag HDPMI=16, which prevents HDPMI from
+    using a 64 kB dynamic TLB.
+
+  15.07.2005, version 1.91
+
+  þ bugfix: when shutting down HDPMI marked PTEs as notpresent
+    which were owned by VCPI host. This caused 386MAX and FreeDOS
+    EMM386 to crash.
+  þ bugfix: uninstalling a resident instance of HDPMI (option -u)
+    may have overwritten dos memory due to the usage of a real-mode
+    stack which was no longer valid.
+
+  10.07.2005, version 1.90
+
+  þ bugfix: now *all* files are closed before going resident.
+    Previously files 0-2 were left open, which may have been a
+    problem if they have been redirected.
+  þ int 21h API translator didn't set Carry flag before calling
+    real-mode dos int 21h (HDPMI32 with LFN support only). This
+    caused problems with DR-DOS.
+
+  04.07.2005, version 1.89
+
+  þ code modified to use a static task state buffer, which
+    simplified the raw mode switching code.
+  þ bugfix: raw mode switch to real-mode didn't clear FS and GS
+  þ display of open real-mode callbacks in default exception
+    handler rearranged.
+  þ bugfix: int 31h, ax=0300h, 0301h, 0302h didn't save/restore
+    client's real-mode segments. So the values in the RMCS became
+    the client's new real-mode segments.
+  þ standard real-mode callbacks (used for IRQs, int 1Ch, 23h, 24h)
+    did save real-mode segment registers on the real-mode stack, but
+    didn't update the client state. So if the dpmi client called
+    a real-mode proc from inside the callback, it didn't get
+    the true client real-mode segments. Don't know if this could
+    be a problem, but other hosts don't behave this way, so it
+    has been changed.
+  þ some small changes to reduce size of binary
+
+  22.06.2005, version 1.88
+
+  þ bugfix: initialization errors caused garbage to be displayed
+  þ bugfix: making HDPMI stay resident using both options -R + -L
+    was hazardous
+  þ default exception handler code partly rewritten so it becomes
+    readable again.
+
+  12.06.2005, version 1.87
+
+  þ CR0 NE bit now is set as default. Makes command line option -n
+    superfluous. New command line option -t will reset CR0 NE bit
+    instead.
+  þ execute FNINIT in default exception 10h handler. 
+  þ bugfix: an int 10h handler may have been called as if an
+    exception 10h had occured, that is, onto the locked stack.
+              
+  17.05.2005, version 1.86
+
+  þ "mov reg,crX" is fully emulated now (opcode 0F 20 xx), except reg == ESP.              
+  þ clear TS bit in CR0 on startup.
+  þ translation of int 21h, ah=38h now documented
+
+  14.05.2005, version 1.85
+
+  þ bugfix: default exception handler may have ignored key strokes
+  þ emulation of "mov eax,cr0" and "mov eax,cr2" reactivated
+
+  13.12.2004, version 1.84
+
+  þ translation for int 21h, ax=71A0h added
+  þ exception 07 default handler now routes exception to protected
+    mode int 07. It is not routed to real-mode, though.
+  þ command line switches -d and -e added
+  þ command line switch -l (=enviroment switch HDPMI=8) added
+  þ dos memory functions now return error codes 8011h and 8022h
+  þ dos memory alloc for 16-bit: selector tiling modified to
+    exactly match dpmi specs
+  þ internal: task state restored before server terminates
+
+  01.12.2004, version 1.83
+
+  þ switched to Digital Mars C++ linker to reduce size of HDPMI
+  þ DR7 now cleared on client termination as specified in DPMI V1.0
+  þ bugfix: special registers DR7 and CR0 are no longer accessed in
+    V86 mode when HDPMI terminates (VCPI mode only).
+  þ bugfix: a GPF occured if client exited int 23h with RETF
+    instead of RETF 4
+  þ CR0 MP flag now saved and restored as are EM + NE
+  þ command line switch -n added
+  þ locked protected mode stack selector now in LDT. Required
+    by WIN87EM.DLL of windows 3.1 which tries to create a code
+    alias for LPMS selector (found in Netscape 4.08).
+  þ bugfix: int 15h mouse event proc had wrong stack parameters
+  þ bugfix: int 33h mouse event proc caused GPF on RETF
+
+  24.11.2004, version 1.82
+
+  þ bugfix: TF was lost when save/restore task state was called in real mode
+  þ translation for int 21h, ax=6521h, 6522h, 65A1h, 65A2h added
+  þ translation for int 21h, ax=5D0Ah added (set ext error info)
+  þ bugfix: exc 0D with EIP > limit(CS) caused an exc 0D in ring 0
+
+  07.11.2004, version 1.81
+
+  þ bugfix: int 21h, ax=440Dh, minor codes 40h,41h,61h did use
+    ds:dx for 32bit clients, not ds:edx
+
+  10.10.2004, version 1.80
+
+  þ bugfix: address space allocation may not have worked in all
+    cases if HDPMI was installed with option -r (resident)
+  þ bugfix: pressing Ctrl-C during console read may have caused
+    a fatal dos memory error (asw.exe).
+
+  02.10.2004, version 1.79
+
+  þ bugfix: function 0503h may have modified ES register
+
+  25.09.2004, version 1.78
+
+  þ new command line switch -m to disable DPMI 1.0 memory functions
+  þ function 401h, AX now has WRITE-PROTECT CLIENT bit set.
+  þ bugfix: function 0401h modified E/DI.
+
+  17.09.2004, version 1.77
+
+  þ API translation for int 21h, ax=71A6 added (LFN version only)
+  þ bugfix: there was still a problem with releasing XMS memory,
+    though it worked better than in v1.75
+
+  12.09.2004, version 1.76
+
+  þ bugfix: HDPMI v1.75 crashed on exit if more than 1 XMS handle
+    had to be released. 
+
+  11.09.2004, version 1.75
+
+  þ bugfix: int 23h/24h traps did work for 1. client only 
+  þ command line switches -r and -u added, to install/uninstall
+    HDPMI as a TSR.
+  þ bugfix: int 31h, ax=507h may have caused memory leaks
+  þ DOS API translation AX=6300 added (get DBCS table)
+
+  29.08.2004, version 1.74
+
+  þ unsupported version with LFN API translation released
+
+  10.06.2004, version 1.73
+
+  þ client CS:EIP stored on top of locked protected-mode stack
+  þ HLT now executed, not simulated
+
+  05.06.2004, version 1.72
+
+  þ bugfix: int 21h, ah=49h: if memory to free was in conv. memory,
+    ES may have been released even if dos function failed.
+  þ function 0503h no longer fails if a block which contains
+    uncommitted pages has to be moved
+  þ bugfix: function 0503h (resize memory) has lost HIWORD
+    of EBX in some cases.
+  þ bugfix: exception 01 handler wasn't called if TF wasn't set,
+    i.e. cleared by an IRET. INT 01 handler was called in any case.
+  þ bugfix: redirection IRQs from real-mode to protected-mode
+    didn't work properly
+  þ bugfix: dos api translation AH=65h, AL>0 now works
+  þ terminating client after an exception now uses LPMS
+  þ waiting for a keystroke after exception dump now works better
+  þ bugfix: failure of phys address mapping didn't set carry flag
+
+  12.05.2004, version 1.71
+
+  þ bugfix: HDPMI v1.70 didn't work with VCPI!
+  þ bugfix: TLB cache is now cleared after system tables have
+    been moved high. Because of this bug HDPMI versions 1.62-1.70 
+    may not run in non-VCPI modes on 80486 and 80586 cpus.
+  þ (re)set real-mode DTA when client calls int 21h, ah=1ah
+
+  10.05.2004, version 1.70
+
+  þ bugfix: reset DTA after int 21h, ax=4b00h
+  þ bugfix: int 31h, ax=0002 sometimes didn't recognize
+    an already returned selector for a real-mode segment
+  þ bugfix: environment for 16-bit clients in int 21h, ax=4b00h
+    exec parameter block now used if != 0
+  þ count of raw switches deleted
+  þ if trace flag set on raw mode switch to protected mode,
+    now halt on first instruction, not the second one
+  þ bugfix: when a client other than the first one terminated,
+    int 21h, ah=4ch was called with host stack, which could cause
+    problems in some circumstances.
+  þ API translation support for int 33h, ax=0009h,ax=0016h,ax=0017h
+  þ bugfix: restrict DOS AH=0Ch API translation to subfunction 0Ah 
+  þ bugfix: tool DPMIRS16 didn't load HDPMI16.EXE 
+  þ switch HDPMI=4 added (return V1.0 server version)
+
+  10.04.2004, version 1.67
+
+  þ now int 15h in real mode is modified in raw mode only
+  þ function 0505h (resize linear memory block) added
+  þ set CR4 OSXMM flag (200h) on server entry
+
+  18.03.2004, version 1.66
+
+  þ understands vendor "VIRTUAL SUPPORT" for 32RTM.EXE support
+  þ emulate 'mov eax,crx' and 'mov crx, eax'
+  þ bugfix: int 31, ah=507h was unable to commit a page
+  þ bugfix: int 2f, ax=168ah, vendor MS-DOS, returned function
+    address for 32bit didnt clear HIWORD(edi)
+  þ bugfix: int 31, ax=506h didnt return read/write attribute
+  þ bugfix: int 21, ah=00h wrongly expected current PSP in bx
+
+  29.02.2004, version 1.65
+
+  þ bugfix: int 31, ax=604h returned a wrong page size
+
+  24.01.2004, version 1.64
+ 
+  þ int 21, ah=71h (LFN) no longer routed to DOS if LFN translation
+    service deactivated (which is default)
+  þ bugfix: linear address returned by function 0800h had always bits
+    0-11 zeroed
+  þ functions 0600h/0601h now return C if memory region is invalid
+    (not allocated) 
+
+  05.01.2004, version 1.63
+
+  þ in psp kill function (int 21, ah=0) the psb isn't touched
+    any more after real mode dos call returned
+  þ translation support for long filenames (AH=71h), optional
+  þ bug fixed for translation of int 21h, AX=7305h
+
+  29.12.2003, version 1.62
+
+  þ now pagedir in sysarea 0, user addr space now 4088 MB
+  þ bugfixes for AllocSpecAddrSpace + FreeMem
+  þ page tables now mapped in last page table, thus
+    increasing user address space to 4084 MB (really)
+  þ DPMI 1.0 function 0801h (unmap phys region) impl.
+    max mem block in func 0500 now limited to largest free
+    addr space region.
+
+  21.12.2003, version 1.61
+
+  þ DPMI 1.0 functions 0401h (get capabilities), 0504h
+    (uncommitted memory) and 0507h (set page attributes)
+    implemented.
+  þ HDPMI environment variable read before real mode initialization
+
+  11.12.2003, version 1.56
+
+  þ release part of int15 memory if an app is launched.
+    this allows multiple instances of HDPMI in int15 mode.
+  þ HDPMI properly terminates if initialization fails (low memory)
+  þ As default DOS memory is no longer in memory pool
+  þ no more FFFF pages limit for memory allocation
+  þ check es, fs, gs if a selector is freed by int31, ax=1
+  þ pressing ctrl-alt-del now executes int21, ax=4c00
+  þ exceptions in ring0 will now stop in kernel debugger
+  þ DPMI 1.0 function 0506h (get page attributes) impl.
+  þ int 3 in ring 0 is ignored now
+  þ bugfix: scan for HDPMI looped if another var beginning
+    with H occured in environment
+  þ now using current environment block for int 21h, 4b00h
+  þ total/free address space now handled correctly.
+    no crash anymore if server runs out of address space
+  þ bugfix: map physical memory was limited to FFFF pages,
+    but returned no error otherwise.
+
+  30.11.2003, version 1.55
+
+  þ use int 15h, ax=e801h to get extended memory > 64 MB
+
+  27.11.2003, version 1.54
+
+  þ new switch HDPMI=4 restricts reporting of available
+    memory to max. block size for I31, ax=0500h
+  þ bugfix: a 8 kB memory block wasn't released if a task
+    other than the first one has terminated.
+  þ bugfix: for exceptions in ring 0 pressing (c)lient didn't work
+
+  24.11.2003, version 1.53
+
+  þ kernel debugger is now called for ring 0 exceptions as well
+
+  20.05.2003, version 1.52
+
+  þ kernel debug support wasn't activated in release version
+
+  17.05.2002, version 1.51
+
+  þ bugfix: reallocate memory (I31, AX=502h) didn't work in all cases
+  þ memory handle is equal to base address for memory allocations
+  þ system area moved to ff800000h, leaving 4084 MB for client
+  þ some enhancements for kernel debugger support
+  þ environment variable HDPMI implemented
+  þ bugfix: wrong query for XMS host 3.0
+    bugfix: memory request for 0 bytes will fail now
+  þ i31swt: reset trace flag (call rm int)
+  þ bug fixed in a20 server (xms gate 20 status)
+
+  28.08.1999, version 1.50
+
+  þ support of FAT32 API translation (Int21,AX=73xx)
+
+  08.01.1998, version 1.40
+
+  þ support for kernel debugger
+  þ server now is in .EXE fromat (formerly .OVL)
+  þ INT 96h in real mode to prevent debuggers stepping
+    into server code.
+  þ guard page 0 for IVT modifications
+  þ temporary 64kb TLB for int 21 3F/40
+  þ save/restore RMS now handled correctly
+
+  14.05.1996, version 1.30
+
+  þ reset NT-Flag in raw mode switch
+  þ reset NT-Flag in real mode callbacks
+  þ fixed bug in stack manipulation
+  þ real mode int21 is saved and restored on exit
+  þ for exception exit send EOI to kbd if necessary
+  þ restore PM register for real-mode callbacks
+  þ recognize 586 cpu
+  þ recognize 486 cpu
+
+  06.11.1994, version 1.20
+
+  þ IRQs occuring in real mode now routed to protected mode
+
+  06.06.1994, version 1.10
+
+  þ many changes, clients now run in ring 3
+
+  01.10.1993, version 1.00
+
+  þ clients running in ring 0
+
+
