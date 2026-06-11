@@ -1,5 +1,5 @@
 /*
- * apps/cmdbox.h — Pinecone MS-DOS Box (Tier 3 target: V86 COMMAND.COM
+ * apps/cmdbox.h — Pinecone FreeCom v86 (Tier 3 target: V86 COMMAND.COM
  * in a window via the V86MT vendor API).
  *
  * Current state: placeholder window with "host pending" body.  The

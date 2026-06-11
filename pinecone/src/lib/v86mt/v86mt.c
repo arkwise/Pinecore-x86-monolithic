@@ -184,6 +184,29 @@ int v86mt_vt_spawn(uint16_t handle, const char *argv, const char *env)
     return 0;
 }
 
+int v86mt_kbd_inject(uint16_t handle, uint8_t scancode, uint8_t ascii)
+{
+    if (!g_v86mt_present) return -1;
+
+    uint32_t eax_in = VMT_KBD_INJECT;
+    uint32_t ebx_in = handle;
+    uint32_t ecx_in = ((uint32_t)scancode << 8) | ascii;
+    uint32_t eax_out;
+    int cf;
+
+    asm volatile (
+        "lcalll *%[entry]\n\t"
+        "sbbl   %%edi, %%edi"
+        : "=a"(eax_out), "=D"(cf)
+        : "a"(eax_in), "b"(ebx_in), "c"(ecx_in),
+          [entry] "m"(g_v86mt_entry)
+        : "memory", "cc"
+    );
+
+    if (cf) return (int)(eax_out & 0xFFFF);
+    return 0;
+}
+
 int v86mt_vt_free(uint16_t handle)
 {
     if (!g_v86mt_present) return -1;

@@ -19,6 +19,17 @@ typedef struct {
     int drag_active;
     int drag_off_x, drag_off_y;
     int restore_x, restore_y, restore_w, restore_h;
+    /* Resize support — Win95-style sizing grip in the bottom-right.
+     * resize_active: set while the user is dragging the grip.
+     * resize_off_w/h: window dimensions captured at drag-start so the
+     *   new size = captured + (mouse delta). Keeps the resize stable
+     *   even if the cursor briefly leaves the grip's pixel area.
+     * min_w/min_h: 0 = use defaults (160×96). Apps can raise these
+     *   so e.g. FreeCom v86 can't shrink below readable 80×25. */
+    int resize_active;
+    int resize_off_w, resize_off_h;
+    int resize_mouse_x, resize_mouse_y;
+    int min_w, min_h;
 } window_t;
 
 #endif

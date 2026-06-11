@@ -811,6 +811,27 @@ static int draw_window_frame(BITMAP *bmp, window_t *win,
         }
     }
 
+    /* Apply any in-progress resize the same way. Min size defaults to
+     * 160×96 unless the caller raised it; max is the screen extent. */
+    if (win->resize_active) {
+        if (!g_mouse_down) {
+            win->resize_active = 0;
+        } else {
+            int dw = mouse_x - win->resize_mouse_x;
+            int dh = mouse_y - win->resize_mouse_y;
+            int nw = win->resize_off_w + dw;
+            int nh = win->resize_off_h + dh;
+            int mw = win->min_w > 0 ? win->min_w : 160;
+            int mh = win->min_h > 0 ? win->min_h : 96;
+            if (nw < mw) nw = mw;
+            if (nh < mh) nh = mh;
+            if (win->x + nw > SCREEN_W)            nw = SCREEN_W - win->x;
+            if (win->y + nh > SCREEN_H - TASKBAR_H) nh = SCREEN_H - TASKBAR_H - win->y;
+            win->w = nw;
+            win->h = nh;
+        }
+    }
+
     x = win->x; y = win->y; w = win->w; h = win->h;
 
     /* Frame */
@@ -903,6 +924,39 @@ static int draw_window_frame(BITMAP *bmp, window_t *win,
             win->drag_active = 1;
             win->drag_off_x = mouse_x - win->x;
             win->drag_off_y = mouse_y - win->y;
+        }
+    }
+
+    /* Resize grip — Win95-style stippled triangle in the bottom-right.
+     * 14×14 hit area. Skipped when the window is maximized. */
+    if (!win->maximized) {
+        int gx = x + w - 14;
+        int gy = y + h - 14;
+        int gw = 12;
+        int gh = 12;
+        /* Three diagonal slashes of two pixels each — light on top, shadow
+         * on bottom — matches the standard sizing-grip rendering. */
+        int i;
+        for (i = 0; i < 3; i++) {
+            int ox = i * 4;
+            hline(bmp, gx + gw - 2 - ox, gy + gh - 1, gx + gw - 1, C_DKSHADOW);
+            hline(bmp, gx + gw - 2 - ox, gy + gh - 2, gx + gw - 1, C_SHADOW);
+            hline(bmp, gx + gw - 3 - ox, gy + gh - 3, gx + gw - 1 - ox - 1, C_LIGHT);
+        }
+        {
+            int hover = point_in(mouse_x, mouse_y, gx, gy, 14, 14);
+            if (hover) {
+                new_widget_id();
+                widget_hover(g_next_widget_id - 1, gx, gy, 14, 14,
+                             "Drag to resize window");
+            }
+            if (hover && !g_mouse_down_prev && g_mouse_down && !g_click_consumed) {
+                win->resize_active   = 1;
+                win->resize_off_w    = win->w;
+                win->resize_off_h    = win->h;
+                win->resize_mouse_x  = mouse_x;
+                win->resize_mouse_y  = mouse_y;
+            }
         }
     }
 
@@ -1060,7 +1114,7 @@ static const char *const submenu_programs[] = {
     "Pinecone Apps",
     "Startup",
     "",
-    "MS-DOS Prompt",
+    "Pinecone Prompt",
     "Pinecone Explorer"
 };
 static const char *const submenu_documents[] = {
@@ -1161,7 +1215,7 @@ static void draw_start_submenu(BITMAP *bmp, int parent_idx, int parent_item_y)
             }
             if (widget_clicked(hover)) {
                 if (parent_idx == 0 &&
-                    strcmp(items[i], "MS-DOS Prompt") == 0) {
+                    strcmp(items[i], "Pinecone Prompt") == 0) {
                     prompt_open();
                     bring_to_front(&g_prompt_win);
                 }
@@ -1389,7 +1443,7 @@ static void draw_taskbar(BITMAP *bmp, unsigned long ms)
             count++;
         }
         if (g_cmdbox_open && !g_cmdbox_win.closed) {
-            tiles[count].label = "MS-DOS Box";
+            tiles[count].label = "FreeCom v86";
             tiles[count].win = &g_cmdbox_win;
             tiles[count].active = !g_cmdbox_win.minimized
                                 && !g_bug_dialog_open
@@ -1476,8 +1530,8 @@ static desktop_icon_t g_desktop_icons[] = {
     { 12,  80, 0, "Recycle Bin",  "Recently deleted files" },
     { 12, 140, 0, "My Documents", "Open your documents folder" },
     { 12, 200, 0, "Network",      "View network neighborhood" },
-    { 12, 260, 0, "MS-DOS Prompt","Open a Pinecone Prompt window (Tier 1 mock)" },
-    { 12, 320, 0, "MS-DOS Box",   "Open an MS-DOS Box (Tier 3 — V86 COMMAND.COM target)" },
+    { 12, 260, 0, "Pinecone Prompt","Open a Pinecone Prompt window (Tier 1 mock)" },
+    { 12, 320, 0, "FreeCom v86",    "Open FreeCom v86 (Tier 3 — V86 COMMAND.COM target)" },
 };
 #define DESKTOP_ICON_N (int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0]))
 
@@ -1505,9 +1559,9 @@ static void draw_desktop_icons(BITMAP *bmp)
         rect(bmp, x + 16, y, x + 47, y + 31, C_DKSHADOW);
         hline(bmp, x + 17, y + 1, x + 46, C_LIGHT);
         vline(bmp, x + 17, y + 1, y + 30, C_LIGHT);
-        /* MS-DOS Prompt icon — render "C:>_" as a hint, open the
+        /* Pinecone Prompt icon — render "C:>_" as a hint, open the
          * Pinecone Prompt window on click. */
-        if (strcmp(g_desktop_icons[i].label, "MS-DOS Prompt") == 0) {
+        if (strcmp(g_desktop_icons[i].label, "Pinecone Prompt") == 0) {
             textout_ex(bmp, font, "C:>_",
                        x + 19, y + 12, makecol(255, 255, 255), -1);
             if (widget_clicked(hover)) {
@@ -1515,8 +1569,8 @@ static void draw_desktop_icons(BITMAP *bmp)
                 bring_to_front(&g_prompt_win);
             }
         }
-        /* MS-DOS Box icon — Tier 3 windowed COMMAND.COM target. */
-        if (strcmp(g_desktop_icons[i].label, "MS-DOS Box") == 0) {
+        /* FreeCom v86 icon — Tier 3 windowed COMMAND.COM target. */
+        if (strcmp(g_desktop_icons[i].label, "FreeCom v86") == 0) {
             textout_ex(bmp, font, "DOS",
                        x + 23, y + 8,  makecol(255, 255, 255), -1);
             textout_ex(bmp, font, "[V86]",
@@ -1562,8 +1616,8 @@ typedef struct {
 static explorer_file_t g_files[] = {
     { "DESKTOP.EXE", "Application",    1064024, "2026-05-27", 0 },
     { "DOOM.EXE",    "Application",     713000, "1993-12-10", 0 },
-    { "EDIT.COM",    "MS-DOS Program",   45000, "1996-08-22", 0 },
-    { "COMMAND.COM", "MS-DOS Program",   91000, "2003-05-18", 0 },
+    { "EDIT.COM",    "DOS Program",      45000, "1996-08-22", 0 },
+    { "COMMAND.COM", "DOS Program",      91000, "2003-05-18", 0 },
     { "FORMAT.EXE",  "Application",      34000, "2006-01-14", 0 },
     { "FDISK.EXE",   "Application",      69000, "2006-01-14", 0 },
     { "AUTOEXEC.BAT","Batch File",         412, "2026-05-27", 0 },
@@ -2677,7 +2731,7 @@ static void show_splash(void)
         textout_centre_ex(back, font, "Desktop Environment",
                           cx, cy_word + 26, makecol(180, 195, 240), -1);
         textout_centre_ex(back, font,
-                          "Version 0.2.0     Built for Pinecore-x86",
+                          "Version 0.1.0     Built for Pinecore-x86",
                           cx, cy_word + 42, makecol(140, 160, 210), -1);
 
         /* Decorative separator */
@@ -2763,33 +2817,11 @@ int main(void)
             pine_trace(" attr=");
             pine_trace_hex(attr_sel);
             pine_trace("\n");
-            /* M4: spawn the kernel's synthetic test program. Do NOT
-             * free the VT here — the V86 task runs asynchronously, and
-             * the v86_destroy_task hook in the kernel needs the shadow
-             * buffer alive at task exit to dump it to serial. The VT
-             * leaks one slot until reboot; cmdbox-path frees on close. */
-            static const char argv_m4[] = "M4TEST\0\0";
-            v86mt_vt_spawn(h, argv_m4, NULL);
-            /* M5: poll the VT — should return non-zero dirty / cursor
-             * once the V86 task has produced output. The post-spawn
-             * poll typically catches the state mid-flight or just
-             * after exit, depending on scheduler timing. */
-            struct v86mt_vt_state st;
-            if (v86mt_poll(h, &st) == 0) {
-                pine_trace("PINE: vt_poll dirty=");
-                pine_trace_hex(st.screen_dirty);
-                pine_trace(" cursor=");
-                pine_trace_hex(st.cursor_x);
-                pine_trace(",");
-                pine_trace_hex(st.cursor_y);
-                pine_trace(" running=");
-                pine_trace_hex(st.task_running);
-                pine_trace(" exited=");
-                pine_trace_hex(st.exited);
-                pine_trace(" api=");
-                pine_trace_hex(st.api_version);
-                pine_trace("\n");
-            }
+            /* M1/M2 probe round-trip: leave the allocated VT in place,
+             * but don't auto-spawn. The FreeCom v86 icon's click handler
+             * runs its own vt_alloc + vt_spawn(COMMAND.COM) when the
+             * user opens the window. */
+            (void)char_sel; (void)attr_sel;
         }
     }
     pine_trace("PINE: post v86mt_probe (M1)\n");
@@ -2827,7 +2859,7 @@ int main(void)
     }
     pine_trace("PINE: post pcnet_resolve\n");
 
-    /* Phase 4.8 TCP loopback smoke . Validates listen/connect
+    /* Phase 4.8 TCP loopback smoke (s53.net.c). Validates listen/connect
      * pairing, accept queue, byte-stream send/recv, and select() multi-fd.
      * Loopback's TCP is software-only — the kernel never sees a real packet.
      *
@@ -2923,17 +2955,30 @@ int main(void)
     set_color_depth(16);
     pine_trace("PINE: post set_color_depth\n");
 
-    pine_trace("PINE: pre set_gfx_mode(AUTODETECT,640,480)\n");
-    rv = set_gfx_mode(GFX_AUTODETECT, 640, 480, 0, 0);
-    pine_trace("PINE: post set_gfx_mode AUTODETECT rv="); pine_trace_hex((unsigned long)rv); pine_trace("\n");
+    /* Target 1024×768 so a real 80×25 v86 window (640×200 content + chrome)
+     * has room around it for other windows + the taskbar. Fall back to
+     * 800×600, then 640×480 if the VBE host can't deliver the larger modes. */
+    pine_trace("PINE: pre set_gfx_mode(AUTODETECT,1024,768)\n");
+    rv = set_gfx_mode(GFX_AUTODETECT, 1024, 768, 0, 0);
+    pine_trace("PINE: post set_gfx_mode 1024x768 rv="); pine_trace_hex((unsigned long)rv); pine_trace("\n");
+    if (rv != 0) {
+        pine_trace("PINE: pre set_gfx_mode(AUTODETECT,800,600)\n");
+        rv = set_gfx_mode(GFX_AUTODETECT, 800, 600, 0, 0);
+        pine_trace("PINE: post set_gfx_mode 800x600 rv="); pine_trace_hex((unsigned long)rv); pine_trace("\n");
+    }
+    if (rv != 0) {
+        pine_trace("PINE: pre set_gfx_mode(AUTODETECT,640,480)\n");
+        rv = set_gfx_mode(GFX_AUTODETECT, 640, 480, 0, 0);
+        pine_trace("PINE: post set_gfx_mode 640x480 rv="); pine_trace_hex((unsigned long)rv); pine_trace("\n");
+    }
     if (rv != 0) {
         pine_trace("PINE: pre set_gfx_mode(SAFE,640,480)\n");
         rv = set_gfx_mode(GFX_SAFE, 640, 480, 0, 0);
         pine_trace("PINE: post set_gfx_mode SAFE rv="); pine_trace_hex((unsigned long)rv); pine_trace("\n");
         if (rv != 0) {
             set_gfx_mode(GFX_TEXT, 0, 0, 0, 0);
-            pine_trace("PINE: both gfx modes failed, exit 1\n");
-            allegro_message("Cannot set 640x480x16:\n%s\n", allegro_error);
+            pine_trace("PINE: all gfx modes failed, exit 1\n");
+            allegro_message("Cannot set gfx mode:\n%s\n", allegro_error);
             return 1;
         }
     }

@@ -323,7 +323,7 @@ This is **NTVDM-on-native-kernel** from `project_platform_thesis`. Real drivers 
 |---|---|---|
 | s38 `_stubinfo` size-shift bug | DJGPP `keypressed()/readkey()` — A2, A4, B1, B2 | Priority 1 in `SESSION-STATE`. Workaround: `key[]`-array bypass + hand-rolled scancode→ASCII (~150 LOC). |
 | Headless V86 + DPMI tty services | A5, B3, B4 | New kernel work, ~1 session in `vt.c`+`dpmi.c`. Spec: `spawn_v86_with_tty`, `read_tty`, `write_tty`, headless VT flag. |
-| Pineapple 3 kernel-task model | True multi-app desktop with process isolation | Post-Pinecore 2. Today everything is one DPMI client. |
+| Pineapple 3 kernel-task model | True multi-app desktop with process isolation | Post-v0.2.0. Today everything is one DPMI client. |
 
 ## Suggested execution order
 
@@ -337,5 +337,5 @@ This is **NTVDM-on-native-kernel** from `project_platform_thesis`. Real drivers 
 8. **IDE — Code Editor (B1)**
 9. **IDE — Visual Widget Editor (B2)**
 10. **IDE — Build / Run (B3, B4)** — self-hosting milestone
-11. **Game apps (C1, C2)** — polish for v0.2.0 demo
+11. **Game apps (C1, C2)** — polish for v0.1.0 demo
 12. **Driver work (Phase D)** — parallel branch from any point

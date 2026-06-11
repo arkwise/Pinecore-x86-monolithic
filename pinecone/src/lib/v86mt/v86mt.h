@@ -111,4 +111,11 @@ int v86mt_vt_spawn(uint16_t handle, const char *argv, const char *env);
  * probed, error code otherwise. */
 int v86mt_poll(uint16_t handle, struct v86mt_vt_state *out);
 
+/* Inject one keystroke into a VT's keyboard ring. scancode = BIOS scan
+ * code (high byte of INT 16h AH=0x10 return), ascii = ASCII / IBM
+ * char (low byte). Returns 0 on success, V86MT_E_RING_FULL when the
+ * ring has no room (caller may retry or drop), -1 if not probed,
+ * other error codes otherwise. */
+int v86mt_kbd_inject(uint16_t handle, uint8_t scancode, uint8_t ascii);
+
 #endif

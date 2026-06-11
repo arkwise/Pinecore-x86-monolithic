@@ -177,7 +177,7 @@ void show_splash(void)
         textout_centre_ex(back, font, "Desktop Environment",
                           cx, cy_word + 26, makecol(180, 195, 240), -1);
         textout_centre_ex(back, font,
-                          "Version 0.2.0     Built for Pinecore-x86",
+                          "Version 0.1.0     Built for Pinecore-x86",
                           cx, cy_word + 42, makecol(140, 160, 210), -1);
 
         {

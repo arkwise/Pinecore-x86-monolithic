@@ -1,5 +1,5 @@
 /*
- * apps/cmdbox.c — MS-DOS Box window (Tier 3 target).
+ * apps/cmdbox.c — FreeCom v86 window (Tier 3 target).
  *
  * Right now: structural clone of apps/prompt.c — mock built-in shell
  * inside a window_t frame. This file exists separately from prompt.c
@@ -107,7 +107,7 @@ static void cb_cmd_help(const char *args)
 {
     int i;
     (void)args;
-    term_puts(&g_cb_term, "MS-DOS Box — placeholder commands (real COMMAND.COM pending):\n");
+    term_puts(&g_cb_term, "FreeCom v86 — placeholder commands (real COMMAND.COM pending):\n");
     for (i = 0; g_cb_cmds[i].name; i++) {
         term_printf(&g_cb_term, "  %-6s  %s\n", g_cb_cmds[i].name, g_cb_cmds[i].help);
     }
@@ -123,8 +123,8 @@ static void cb_cmd_cls(const char *args)
 static void cb_cmd_ver(const char *args)
 {
     (void)args;
-    term_puts(&g_cb_term, "MS-DOS Box        Tier 3 target (V86MT host pending)\n");
-    term_puts(&g_cb_term, "Pinecone Desktop  Version 0.2.0\n");
+    term_puts(&g_cb_term, "FreeCom v86       Tier 3 target (V86MT host pending)\n");
+    term_puts(&g_cb_term, "Pinecone Desktop  Version 0.1.0\n");
     term_puts(&g_cb_term, "Pinecore-x86      Phase 4.7 (V86MT integration)\n");
     term_puts(&g_cb_term, "\n");
 }
@@ -235,7 +235,7 @@ void cmdbox_open(void)
     if (!g_cmdbox_open) {
         term_init(&g_cb_term);
         term_set_color(&g_cb_term, 15, 1);   /* white on blue */
-        term_puts(&g_cb_term, " MS-DOS Box  -  Tier 3 (V86 COMMAND.COM target)\n");
+        term_puts(&g_cb_term, " FreeCom v86  -  Tier 3 (V86 COMMAND.COM target)\n");
         /* Phase 4.7 M1+M2: probe V86MT vendor API and try a vt_alloc.
          * Mock built-ins stay active until vt_spawn(COMMAND.COM) lands
          * in M4. */
@@ -260,11 +260,14 @@ void cmdbox_open(void)
                 term_printf(&g_cb_term,
                             " vt#%u allocated (char=0x%04X attr=0x%04X kbd=0x%04X)\n",
                             (unsigned)h, (unsigned)ch, (unsigned)at, (unsigned)kb);
-                /* M4: spawn kernel synthetic test program. */
-                static const char argv_m4[] = "M4TEST\0\0";
-                int s = v86mt_vt_spawn(h, argv_m4, NULL);
+                /* M7: spawn real COMMAND.COM. Kernel reads the binary from
+                 * FAT via exe_load, builds PSP + env, enters V86 mode. The
+                 * VT is now a live shell — typed keys flow through
+                 * v86mt_kbd_inject (see cmdbox_feed_char). */
+                static const char argv_cmd[] = "COMMAND.COM\0\0";
+                int s = v86mt_vt_spawn(h, argv_cmd, NULL);
                 if (s == 0) {
-                    term_puts(&g_cb_term, " vt_spawn OK (M4 synthetic test program)\n");
+                    term_puts(&g_cb_term, " vt_spawn OK (COMMAND.COM in V86)\n");
                     g_cb_vt_bound = 1;
                 } else {
                     term_printf(&g_cb_term, " vt_spawn failed (err=0x%04X)\n",
@@ -286,12 +289,33 @@ void cmdbox_open(void)
     g_cmdbox_win.closed = 0;
     g_cmdbox_win.minimized = 0;
     if (g_cmdbox_win.w == 0) {
-        g_cmdbox_win.w = TERM_PIXEL_W + 14;
-        g_cmdbox_win.h = TERM_PIXEL_H + 60;
-        /* Offset from the T1 prompt window so both can be open without
-         * stacking exactly. */
-        g_cmdbox_win.x = (SCREEN_W - g_cmdbox_win.w) / 2 + 40;
-        g_cmdbox_win.y = 100;
+        /* Size the window for an 80×25 v86 shadow buffer when V86MT is
+         * present; fall back to the mock terminal size when not. The user
+         * can shrink to min_w/min_h via the new resize grip in the frame. */
+        int cw = text_length(font, "M");
+        int chh = text_height(font);
+        int content_w = g_cb_vt_bound ? (80 * cw) : TERM_PIXEL_W;
+        int content_h = g_cb_vt_bound ? (25 * chh) : TERM_PIXEL_H;
+        g_cmdbox_win.w = content_w + 14;
+        g_cmdbox_win.h = content_h + 60;
+        /* Cap to the actual display bounds — at 640×480 a full 80×8px
+         * column row doesn't quite fit with our window chrome, so clip
+         * to the screen extent. Content past the clip is reachable via
+         * the resize grip after dragging the window taller/wider on a
+         * larger gfx mode, or simply by shrinking the window down and
+         * scrolling COMMAND.COM's output through the visible area. */
+        if (g_cmdbox_win.w > SCREEN_W - 8)
+            g_cmdbox_win.w = SCREEN_W - 8;
+        if (g_cmdbox_win.h > SCREEN_H - TASKBAR_H - 8)
+            g_cmdbox_win.h = SCREEN_H - TASKBAR_H - 8;
+        /* Minimum size = ~40×12 chars of content so the box is still usable
+         * after a drag-down. */
+        g_cmdbox_win.min_w = 40 * cw + 14;
+        g_cmdbox_win.min_h = 12 * chh + 60;
+        /* Center horizontally; pin to top with small margin. */
+        g_cmdbox_win.x = (SCREEN_W - g_cmdbox_win.w) / 2;
+        if (g_cmdbox_win.x < 4) g_cmdbox_win.x = 4;
+        g_cmdbox_win.y = 32;
     }
 }
 
@@ -312,6 +336,22 @@ void cmdbox_close(void)
 void cmdbox_feed_char(int ascii)
 {
     if (!g_cmdbox_open || g_cmdbox_win.closed || g_cmdbox_win.minimized) return;
+
+    /* M6 — when bound to a V86MT VT, forward keystrokes through the kbd
+     * ring. COMMAND.COM does its own echo and line editing; the host's
+     * INT 16h emulator drains the ring (see v86.c case 0x16 with
+     * v86mt_kbd_pop). The local term echo / line buffer below is only
+     * used in mock-built-ins mode when no V86MT host is present.
+     * Note: scancode is 0 here because Allegro's typed-key queue stripped
+     * it during the readkey() decode in main.c. Printable typing works;
+     * arrows / F-keys / Home/End need a v86mt-aware key path that
+     * preserves the high byte — future work. */
+    if (g_cb_vt_bound) {
+        if (ascii)
+            (void)v86mt_kbd_inject(g_cb_vt_handle, 0, (uint8_t)(ascii & 0xFF));
+        return;
+    }
+
     if (!g_cb_ready) return;
 
     if (ascii == '\n' || ascii == '\r') {
@@ -347,11 +387,11 @@ void cmdbox_draw(BITMAP *bmp, unsigned long ms)
     if (!g_cmdbox_open || g_cmdbox_win.closed || g_cmdbox_win.minimized) return;
 
     action = draw_window_frame(bmp, &g_cmdbox_win,
-                               "MS-DOS Box",
+                               "FreeCom v86",
                                win_is_active(&g_cmdbox_win));
     if (action == 1) { g_cmdbox_win.minimized = 1; return; }
     if (action == 3) { cmdbox_close(); return; }
-    if (action == 4) { open_bug_dialog("MS-DOS Box"); }
+    if (action == 4) { open_bug_dialog("FreeCom v86"); }
 
     wx = g_cmdbox_win.x; wy = g_cmdbox_win.y;
     ww = g_cmdbox_win.w; wh = g_cmdbox_win.h;
@@ -359,13 +399,21 @@ void cmdbox_draw(BITMAP *bmp, unsigned long ms)
     {
         int tx = wx + 7;
         int ty = wy + 28;
+        /* Fit the content area to the current window size — title bar
+         * eats ~28 px on top, status bar ~22 px on bottom, frame ~7 px on
+         * each side. Whatever's left is the visible v86 area. Lines/cols
+         * past the right/bottom edge get clipped by the row loop. */
+        int content_w = ww - 14;
+        int content_h = wh - 22 /*status*/ - 28 /*title*/ - 10 /*padding*/;
+        if (content_w < 16) content_w = 16;
+        if (content_h < 16) content_h = 16;
         rect(bmp, tx - 2, ty - 2,
-                  tx + TERM_PIXEL_W + 1,
-                  ty + TERM_PIXEL_H + 1,
+                  tx + content_w + 1,
+                  ty + content_h + 1,
              makecol(128, 128, 128));
-        hline(bmp, tx - 2, ty - 1, tx + TERM_PIXEL_W + 1,
+        hline(bmp, tx - 2, ty - 1, tx + content_w + 1,
               makecol(64, 64, 64));
-        vline(bmp, tx - 1, ty - 2, ty + TERM_PIXEL_H + 1,
+        vline(bmp, tx - 1, ty - 2, ty + content_h + 1,
               makecol(64, 64, 64));
         if (g_cb_vt_bound && g_cb_char_sel) {
             /* M5 — blit the V86MT shadow buffer. Poll once per frame so
@@ -374,23 +422,124 @@ void cmdbox_draw(BITMAP *bmp, unsigned long ms)
             struct v86mt_vt_state st;
             if (v86mt_poll(g_cb_vt_handle, &st) == 0)
                 g_cb_last_dirty = st.screen_dirty;
-            rectfill(bmp, tx, ty, tx + TERM_PIXEL_W, ty + TERM_PIXEL_H,
+            rectfill(bmp, tx, ty, tx + content_w, ty + content_h,
                      makecol(0, 0, 128));
             int cw = text_length(font, "M");
             int chh = text_height(font);
             char rowbuf[81];
-            _farsetsel(g_cb_char_sel);
-            for (int r = 0; r < 25; r++) {
+            /* Read via raw GS prefix — DJGPP's _farsetsel/_farnspeekb
+             * don't reliably traverse an LDT alias selector to a
+             * kernel-pinned buffer; the inline-asm pattern that works
+             * for the headless shadow-buffer dump goes here too. */
+            uint16_t old_gs, old_fs;
+            int max_cols = content_w / cw;
+            int max_rows = content_h / chh;
+            if (max_cols > 80) max_cols = 80;
+            if (max_rows > 25) max_rows = 25;
+            if (max_cols < 1)  max_cols = 1;
+            if (max_rows < 1)  max_rows = 1;
+
+            /* Standard IBM CGA/EGA 16-color palette. attr byte layout
+             * (matches every TUI from BORLAND IDE to FreeDOS EDIT):
+             *   bits 0..3 = foreground index
+             *   bits 4..6 = background index (3 bits → 8 BG colors)
+             *   bit  7    = blink (ignored — we don't blink) */
+            static const unsigned char vga_r[16] = {
+                0,   0,   0,   0,   170, 170, 170, 170,
+                85,  85,  85,  85,  255, 255, 255, 255
+            };
+            static const unsigned char vga_g[16] = {
+                0,   0,   170, 170, 0,   0,   85,  170,
+                85,  85,  255, 255, 85,  85,  255, 255
+            };
+            static const unsigned char vga_b[16] = {
+                0,   170, 0,   170, 0,   170, 0,   170,
+                85,  255, 85,  255, 85,  255, 85,  255
+            };
+            int pal[16];
+            int i;
+            for (i = 0; i < 16; i++) pal[i] = makecol(vga_r[i], vga_g[i], vga_b[i]);
+
+            __asm__ volatile ("movw %%gs, %0" : "=r"(old_gs));
+            __asm__ volatile ("movw %%fs, %0" : "=r"(old_fs));
+            __asm__ volatile ("movw %0, %%gs" :: "r"(g_cb_char_sel));
+            __asm__ volatile ("movw %0, %%fs" :: "r"(g_cb_attr_sel));
+            /* Batch by row, then within each row by run-of-equal-attr.
+             * Per-cell rectfill+textout was costing ~2000 draw calls per
+             * frame and starved COMMAND.COM of CPU. Now: one rectfill +
+             * one textout per attr run (usually 5-15 runs per row). */
+            for (int r = 0; r < max_rows; r++) {
+                uint8_t chrow[81], attrow[80];
                 int col;
-                for (col = 0; col < 80; col++) {
-                    uint8_t b = _farnspeekb(r * 80 + col);
-                    rowbuf[col] = (b >= 0x20 && b < 0x7F) ? (char)b : ' ';
+                /* Pull the row into local buffers first so we can scan
+                 * without paying the seg-prefix cost per cell. attr is
+                 * fetched by reloading GS to attr_sel between byte fetches
+                 * — empirically FS doesn't reliably traverse a v86mt LDT
+                 * selector under DPMI Ring-3 (TODO: cleaner: have the host
+                 * deliver a combined char/attr buffer via a single sel). */
+                for (col = 0; col < max_cols; col++) {
+                    uint8_t b;
+                    uint32_t off = (uint32_t)r * 80 + col;
+                    __asm__ volatile ("movb %%gs:(%1), %0"
+                                      : "=q"(b) : "r"(off));
+                    chrow[col]  = b;
                 }
-                rowbuf[80] = 0;
-                textout_ex(bmp, font, rowbuf, tx, ty + r * chh,
-                           makecol(224, 224, 224), -1);
-                (void)cw;
+                __asm__ volatile ("movw %0, %%gs" :: "r"(g_cb_attr_sel));
+                for (col = 0; col < max_cols; col++) {
+                    uint8_t a;
+                    uint32_t off = (uint32_t)r * 80 + col;
+                    __asm__ volatile ("movb %%gs:(%1), %0"
+                                      : "=q"(a) : "r"(off));
+                    attrow[col] = a;
+                }
+                __asm__ volatile ("movw %0, %%gs" :: "r"(g_cb_char_sel));
+
+                int run_start = 0;
+                while (run_start < max_cols) {
+                    uint8_t run_attr = attrow[run_start];
+                    int run_end = run_start + 1;
+                    while (run_end < max_cols && attrow[run_end] == run_attr)
+                        run_end++;
+                    int fg = run_attr & 0x0F;
+                    int bg = (run_attr >> 4) & 0x07;
+                    int cx = tx + run_start * cw;
+                    int cy = ty + r * chh;
+                    rectfill(bmp, cx, cy,
+                             tx + run_end * cw - 1, cy + chh - 1, pal[bg]);
+                    /* Build the run string with CP437→ASCII fallback. */
+                    int rlen = 0;
+                    for (col = run_start; col < run_end; col++) {
+                        uint8_t b = chrow[col];
+                        char glyph = ' ';
+                        if (b >= 0x20 && b < 0x7F) {
+                            glyph = (char)b;
+                        } else switch (b) {
+                            case 0xC4: case 0xCD:            glyph = '-'; break;
+                            case 0xB3: case 0xBA:            glyph = '|'; break;
+                            case 0xDA: case 0xBF: case 0xC0:
+                            case 0xD9: case 0xC9: case 0xBB:
+                            case 0xC8: case 0xBC: case 0xC3:
+                            case 0xB4: case 0xC2: case 0xC1:
+                            case 0xC5: case 0xCC: case 0xB9:
+                            case 0xCB: case 0xCA: case 0xCE: glyph = '+'; break;
+                            case 0xDB: case 0xDC: case 0xDD:
+                            case 0xDE: case 0xDF:            glyph = '#'; break;
+                            case 0xB0: case 0xB1: case 0xB2: glyph = '.'; break;
+                            case 0x10: case 0x1A:            glyph = '>'; break;
+                            case 0x11: case 0x1B:            glyph = '<'; break;
+                            case 0x18:                       glyph = '^'; break;
+                            case 0x19: case 0x1F:            glyph = 'v'; break;
+                            default:                         glyph = ' '; break;
+                        }
+                        rowbuf[rlen++] = glyph;
+                    }
+                    rowbuf[rlen] = 0;
+                    textout_ex(bmp, font, rowbuf, cx, cy, pal[fg], -1);
+                    run_start = run_end;
+                }
             }
+            __asm__ volatile ("movw %0, %%gs" :: "r"(old_gs));
+            __asm__ volatile ("movw %0, %%fs" :: "r"(old_fs));
         } else {
             term_draw(&g_cb_term, bmp, tx, ty, ms);
         }
@@ -401,6 +550,6 @@ void cmdbox_draw(BITMAP *bmp, unsigned long ms)
              makecol(212, 208, 200));
     hline(bmp, wx + 3, sby, wx + ww - 4, makecol(128, 128, 128));
     hline(bmp, wx + 3, sby + 1, wx + ww - 4, makecol(255, 255, 255));
-    textout_ex(bmp, font, "Tier 3 - V86 COMMAND.COM target (host pending)",
+    textout_ex(bmp, font, "Tier 3 - FreeCom v86 (real COMMAND.COM in V86)",
                wx + 9, sby + 6, makecol(0, 0, 0), -1);
 }

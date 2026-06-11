@@ -94,7 +94,7 @@ static void cmd_cls(const char *args)
 static void cmd_ver(const char *args)
 {
     (void)args;
-    term_puts(&g_term, "Pinecone Desktop  Version 0.2.0\n");
+    term_puts(&g_term, "Pinecone Desktop  Version 0.1.0\n");
     term_puts(&g_term, "Pinecore-x86      Phase 4.6 (DPMI host)\n");
     term_puts(&g_term, "DJGPP             go32 v2\n");
     term_puts(&g_term, "\n");
