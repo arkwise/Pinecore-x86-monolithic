@@ -16,6 +16,7 @@ src/kernel.dos.flat
 src/kernel.pure.bin
 src/kernel.pure.flat
 src/**/*.o
+src/modules/*.kmd
 src/test/*.bin
 src/test/*.COM
 src/test/TEST.COM

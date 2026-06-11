@@ -22,6 +22,7 @@
 #include "comload.h"
 #include "vt.h"
 #include "fat.h"
+#include "vmm.h"
 
 extern void *memset(void *s, int c, uint32_t n);
 
@@ -169,11 +170,29 @@ static void v86_task_entry(void) {
     const char *binary = self->exec_binary[0] ? self->exec_binary : "COMMAND.COM";
     const char *args   = self->exec_args[0]   ? self->exec_args   : "";
 
+    /* Each V86 task now has its own 1 MB virtual address space backed by
+     * private physical pages (see v86_alloc_paging). Every task can use the
+     * SAME virtual layout — 576 KB of conventional memory at the standard
+     * DOS location — without colliding, because the page directory swap
+     * routes their identical virtual addresses to different physical RAM.
+     *
+     *   env_seg     = 0x1000  (env block at virt 0x10000..0x10FFF)
+     *   arena_paras = 0x9000  (576 KB ending at virt 0xA0000 = VGA) */
+    uint16_t env_seg     = 0x1000;
+    uint16_t arena_paras = 0x9000;
+    (void)v86_id;
+
     serial_puts("V86 task: loading ");
     serial_puts(binary);
+    serial_puts(" at env_seg=");
+    serial_puthex(env_seg);
     serial_puts("\n");
 
-    if (exe_load(binary, args, &einfo) == 0) {
+    if (exe_load(binary, args, &einfo, env_seg, arena_paras) == 0) {
+        /* Stamp this V86 task's MCB chain root so dos.c's AH=48/4A/4B
+         * walker stays inside this arena and won't carve into another
+         * task's free blocks. */
+        v86_set_mcb_root(v86_id, env_seg - 1);
         dos_set_psp(self->dos_task_id, einfo.psp_seg);
 
         serial_puts("V86 task: starting ");
@@ -379,6 +398,18 @@ void sched_schedule(uint32_t *esp_ptr) {
     else
         v86_set_current(-1);
 
+    /* Per-task page directory for V86 tasks — gives each one its own
+     * private 0x1000..0x9F000 conventional memory. Kernel tasks use the
+     * kernel PD. A task whose paging alloc failed (cr3 == 0) falls back
+     * to the kernel PD so it can still run. */
+    {
+        uint32_t cr3 = 0;
+        if (tasks[current].type == TASK_V86 && tasks[current].v86_task_id >= 0)
+            cr3 = v86_task_cr3(tasks[current].v86_task_id);
+        if (!cr3) cr3 = vmm_kernel_pd_phys();
+        vmm_load_cr3(cr3);
+    }
+
     /* Restore incoming task's FAT drive */
     if (fat_is_mounted(tasks[current].fat_drive))
         fat_set_drive(tasks[current].fat_drive);
@@ -492,7 +523,7 @@ void sched_v86_exit(void) {
              * destroy the V86 task. Otherwise the client.active flag
              * stays true; a subsequent EXEC creates a stale-LDT second
              * client whose mode switch eventually triple-faults via
-             * isr_common re-entry. (lockup signature.) */
+             * isr_common re-entry. (Session 27 lockup signature.) */
             extern void dpmi_release_client_for_v86(int v86_task_id);
             dpmi_release_client_for_v86(self->v86_task_id);
             v86_destroy_task(self->v86_task_id);

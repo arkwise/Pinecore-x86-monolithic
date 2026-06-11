@@ -75,6 +75,44 @@ static void dos_console_putchar(int task_id, char c) {
 static dos_getchar_fn console_getchar;
 static dos_kbhit_fn   console_kbhit;
 
+/* M6 — input symmetric to dos_console_putchar: when the current V86
+ * task is V86MT-owned, read from the per-VT kbd ring (fed by INT 31h
+ * AX=0x0A03 from the DPMI host); otherwise fall through to the VT-
+ * routed console hook. FreeCom reads via INT 21h AH=0x0A (buffered)
+ * and AH=0x01/0x06/0x08, not raw INT 16h, so the inject ring would
+ * never reach the shell without these wrappers. */
+static char dos_console_getchar(int task_id) {
+    int client_id = v86_current_v86mt_client();
+    int handle    = v86_current_v86mt_handle();
+    if (client_id >= 0 && handle > 0) {
+        struct dpmi_v86mt_vt *vmtv =
+            v86mt_vt_get(client_id, (uint16_t)handle);
+        if (vmtv) {
+            uint16_t entry = 0;
+            __asm__ volatile ("sti");
+            while (!v86mt_kbd_pop(vmtv, &entry))
+                __asm__ volatile ("hlt");
+            uint8_t ascii = entry & 0xFF;
+            return (char)ascii;
+        }
+    }
+    return console_getchar(task_id);
+}
+
+static int dos_console_kbhit(int task_id) {
+    int client_id = v86_current_v86mt_client();
+    int handle    = v86_current_v86mt_handle();
+    if (client_id >= 0 && handle > 0) {
+        struct dpmi_v86mt_vt *vmtv =
+            v86mt_vt_get(client_id, (uint16_t)handle);
+        if (vmtv) {
+            uint16_t entry = 0;
+            return v86mt_kbd_peek(vmtv, &entry) ? 1 : 0;
+        }
+    }
+    return console_kbhit(task_id);
+}
+
 /* Default console I/O -- serial port fallback */
 static void default_putchar(int task_id, char c) {
     (void)task_id;
@@ -286,14 +324,46 @@ uint16_t dos_get_psp(int task_id) {
  * V86 round-trip available. Cap at 0xA000 (640 KB) — anything above is
  * upper-memory / BIOS / video and not ours to hand out. */
 uint16_t dos_alloc_paragraphs(int task_id, uint16_t paragraphs) {
+    /* DPMI INT 31h AX=0x0100 calls this to allocate conventional memory for
+     * a client (e.g. CWSDPMI's transfer buffer). Walks the V86 task's MCB
+     * chain and carves the first free block large enough — same semantics
+     * as INT 21h AH=48. The earlier bump-allocator design was broken because
+     * EXEC sets `next_alloc_seg` to the END of the child's block, making any
+     * sized request overflow past 0xA000. DESKTOP.EXE needs ~60 KB here. */
     if (task_id < 0 || task_id >= DOS_MAX_TASKS) return 0;
     if (!tasks[task_id].active) return 0;
     if (paragraphs == 0) return 0;
-    uint16_t seg = tasks[task_id].next_alloc_seg;
-    uint32_t end = (uint32_t)seg + paragraphs;
-    if (end > 0xA000) return 0;
-    tasks[task_id].next_alloc_seg = (uint16_t)end;
-    return seg;
+
+    uint16_t ms = v86_current_mcb_root();
+    while (1) {
+        uint8_t *m = (uint8_t *)((uint32_t)ms << 4);
+        uint8_t  type = m[0];
+        uint16_t msz   = *(uint16_t *)(m + 3);
+        uint16_t owner = *(uint16_t *)(m + 1);
+
+        if (type != 'M' && type != 'Z') break;  /* corrupt chain — bail */
+
+        if (owner == 0 && msz >= paragraphs) {
+            /* Carve this block: claim it for the caller's PSP, split off
+             * the remainder as a new free block when there's room. */
+            *(uint16_t *)(m + 1) = tasks[task_id].psp_seg;
+            if (msz > paragraphs + 1) {
+                *(uint16_t *)(m + 3) = paragraphs;
+                uint8_t *nm = (uint8_t *)((uint32_t)(ms + 1 + paragraphs) << 4);
+                nm[0] = type;                            /* inherit M or Z */
+                *(uint16_t *)(nm + 1) = 0;
+                *(uint16_t *)(nm + 3) = msz - paragraphs - 1;
+                m[0] = 'M';
+            } else {
+                *(uint16_t *)(m + 3) = msz;              /* exact / 1-para slack */
+            }
+            return ms + 1;
+        }
+
+        if (type == 'Z') break;
+        ms = ms + 1 + msz;
+    }
+    return 0;
 }
 
 void dos_set_psp(int task_id, uint16_t psp_seg) {
@@ -383,7 +453,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
 
     case 0x01: {
         /* Read character with echo */
-        char c = console_getchar(task_id);
+        char c = dos_console_getchar(task_id);
         dos_console_putchar(task_id, c);
         regs->eax = (regs->eax & 0xFFFFFF00) | (uint8_t)c;
         break;
@@ -401,8 +471,8 @@ int dos_int21(int task_id, struct dos_regs *regs) {
         uint8_t dl = regs->edx & 0xFF;
         if (dl == 0xFF) {
             /* Input */
-            if (console_kbhit(task_id)) {
-                char c = console_getchar(task_id);
+            if (dos_console_kbhit(task_id)) {
+                char c = dos_console_getchar(task_id);
                 regs->eax = (regs->eax & 0xFFFFFF00) | (uint8_t)c;
                 regs->eflags &= ~0x40;  /* clear ZF = char available */
             } else {
@@ -435,7 +505,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
         char c;
 
         while (count < max_len - 1) {
-            c = console_getchar(task_id);
+            c = dos_console_getchar(task_id);
             if (c == '\r' || c == '\n') {
                 dos_console_putchar(task_id, '\r');
                 dos_console_putchar(task_id, '\n');
@@ -459,7 +529,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
 
     case 0x0B: {
         /* Check input status */
-        regs->eax = (regs->eax & 0xFFFFFF00) | (console_kbhit(task_id) ? 0xFF : 0x00);
+        regs->eax = (regs->eax & 0xFFFFFF00) | (dos_console_kbhit(task_id) ? 0xFF : 0x00);
         break;
     }
 
@@ -664,7 +734,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
         if (dos_h == 0) {
             uint16_t i = 0;
             while (i < count) {
-                char c = console_getchar(task_id);
+                char c = dos_console_getchar(task_id);
                 buf[i++] = c;
                 if (c == '\r') {
                     /* Also add LF */
@@ -1146,7 +1216,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
              * all go in that block. */
             {
                 uint16_t best_seg = 0, best_size = 0;
-                uint16_t ws = 0x0040;
+                uint16_t ws = v86_current_mcb_root();
                 while (1) {
                     uint8_t *wm = (uint8_t *)((uint32_t)ws << 4);
                     uint16_t wsz = *(uint16_t *)(wm + 3);
@@ -1308,7 +1378,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
                 /* s42 — dump MCB chain after EXEC to trace corruption */
                 serial_puts("DOS: MCB chain after EXEC:\n");
                 {
-                    uint16_t ms_dbg = 0x0040;
+                    uint16_t ms_dbg = v86_current_mcb_root();
                     int safety = 0;
                     while (safety++ < 32) {
                         uint8_t *m = (uint8_t *)((uint32_t)ms_dbg << 4);
@@ -1387,7 +1457,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
             /* Free all MCBs owned by the child PSP */
             {
                 uint16_t child_psp = t->psp_seg;
-                uint16_t ms = 0x0040;
+                uint16_t ms = v86_current_mcb_root();
                 while (1) {
                     uint8_t *m = (uint8_t *)((uint32_t)ms << 4);
                     uint16_t msz = *(uint16_t *)(m + 3);
@@ -1416,7 +1486,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
                 }
 
                 /* Second pass: merge any adjacent free blocks we created */
-                ms = 0x0040;
+                ms = v86_current_mcb_root();
                 while (1) {
                     uint8_t *m = (uint8_t *)((uint32_t)ms << 4);
                     uint16_t msz = *(uint16_t *)(m + 3);
@@ -1488,7 +1558,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
          * that range is effectively abandoned, which is acceptable
          * post-extender-cleanup since those owners are gone. */
         uint16_t paras = regs->ebx & 0xFFFF;
-        uint16_t ms = 0x0040;
+        uint16_t ms = v86_current_mcb_root();
         uint16_t largest_free = 0;
         int found = 0;
 
@@ -1558,7 +1628,7 @@ int dos_int21(int task_id, struct dos_regs *regs) {
             serial_puthex(paras);
             serial_puts(" para — MCB chain:\n");
             {
-                uint16_t ms_dbg = 0x0040;
+                uint16_t ms_dbg = v86_current_mcb_root();
                 int safety = 0;
                 while (safety++ < 64) {
                     uint8_t *m = (uint8_t *)((uint32_t)ms_dbg << 4);
@@ -1787,14 +1857,14 @@ int dos_int21(int task_id, struct dos_regs *regs) {
 
     case 0x07: {
         /* Direct char input without echo */
-        char c = console_getchar(task_id);
+        char c = dos_console_getchar(task_id);
         regs->eax = (regs->eax & 0xFFFFFF00) | (uint8_t)c;
         break;
     }
 
     case 0x08: {
         /* Char input without echo (checks Ctrl-C) */
-        char c = console_getchar(task_id);
+        char c = dos_console_getchar(task_id);
         regs->eax = (regs->eax & 0xFFFFFF00) | (uint8_t)c;
         break;
     }
@@ -1852,8 +1922,9 @@ int dos_int21(int task_id, struct dos_regs *regs) {
         uint8_t *lol = v86_ptr(0x0060, 0x0026);
         uint32_t k;
         for (k = 0; k < 64; k++) lol[k] = 0;
-        /* Offset -2 from returned pointer: DOS segment of first MCB */
-        *(uint16_t *)(lol - 2) = 0x0040;
+        /* Offset -2 from returned pointer: DOS segment of first MCB.
+         * Per-V86-task so MCB walkers stay inside this task's arena. */
+        *(uint16_t *)(lol - 2) = v86_current_mcb_root();
         /* Offset 0x16: CDS pointer (far ptr) — point to dummy area */
         *(uint16_t *)(lol + 0x16) = 0x00;
         *(uint16_t *)(lol + 0x18) = 0x0070;

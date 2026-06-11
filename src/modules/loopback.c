@@ -13,7 +13,7 @@
  *      "received" → parse → return IPv4) without an upstream resolver.
  *      The canned answer is 127.0.0.1 (0x7F000001).
  *
- *   3. Full in-process TCP loopback . listen / connect pair
+ *   3. Full in-process TCP loopback (s53.net.c). listen / connect pair
  *      two sockets in the same socket table; send writes into peer's
  *      RX ring; recv reads own ring; close half-shuts the peer. Exists
  *      to exercise select() multi-fd, accept(), and stream semantics

@@ -21,6 +21,7 @@
 #include "idt.h"
 #include "serial.h"
 #include "sched.h"
+#include "klog.h"
 
 static volatile uint64_t rtc_ticks = 0;
 
@@ -43,6 +44,12 @@ static void rtc_irq_handler(uint32_t int_no, uint32_t err_code,
     (void)int_no; (void)err_code; (void)eip; (void)cs; (void)eflags;
 
     rtc_ticks++;
+
+    /* Boot watchdog. No-op (single volatile load + branch) when
+     * disarmed — which is the post-sched_start steady state. When
+     * armed, panics if no klog_stage/klog_iter heartbeat fired
+     * within the budget. */
+    klog_watchdog_check();
 
     /* MUST read register C to acknowledge the interrupt,
      * otherwise the RTC won't generate another one */

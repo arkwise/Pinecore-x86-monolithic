@@ -75,7 +75,7 @@ int  keyboard_key_down(uint8_t scancode);
  * PS/2 IRQ handler — that path enqueues directly. */
 void keyboard_inject_key(uint8_t scancode, uint8_t ascii);
 
-/*  — multi-byte scancode injection for USB HID (doc 52 §10).
+/* s53.a — multi-byte scancode injection for USB HID (doc 52 §10).
  *
  * Some keys in AT scancode set 1 are E0-prefixed (PrtSc, arrows, KP
  * Enter, etc.) or E1-prefixed (Pause). hid.kmd looks up each HID Usage

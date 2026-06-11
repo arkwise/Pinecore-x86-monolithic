@@ -24,16 +24,23 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "klog.h"
+#include "vmm.h"
 
 /* ---- Memory + heap ---- */
 EXPORT_SYMBOL(kmalloc);
 EXPORT_SYMBOL(kfree);
 
-/* ---- DMA ---- */
+/* ---- DMA (s53.a) ---- */
 EXPORT_SYMBOL(dma_alloc);
 EXPORT_SYMBOL(dma_free);
 EXPORT_SYMBOL(dma_virt_to_phys);
 EXPORT_SYMBOL(dma_free_bytes);
+
+/* ---- VMM page mapping (s53.usb.c — required by ohci.kmd for MMIO BAR
+ *      mapping; OHCI BARs live in PCI memory space above the 32 MiB
+ *      identity map). */
+EXPORT_SYMBOL(vmm_map_page);
+EXPORT_SYMBOL(vmm_unmap_page);
 
 /* ---- Port I/O (non-inline wrappers in port_io.c) ---- */
 extern uint8_t  inb(uint16_t);
@@ -56,7 +63,7 @@ EXPORT_SYMBOL(pci_find_class);
 EXPORT_SYMBOL(pci_usb_count);
 EXPORT_SYMBOL(pci_usb_get);
 
-/* ---- IRQ + timing ---- */
+/* ---- IRQ + timing (s53.a) ---- */
 EXPORT_SYMBOL(irq_register);
 EXPORT_SYMBOL(irq_unregister);
 EXPORT_SYMBOL(irq_eoi);
@@ -78,9 +85,9 @@ EXPORT_SYMBOL(klog_iter);
 
 /* ---- DOS hand-off sinks (the API surface USB class drivers feed) ---- */
 EXPORT_SYMBOL(keyboard_inject_key);                 /* (s51 Path B + HID) */
-EXPORT_SYMBOL(keyboard_inject_scancode_sequence);   /* ( — multi-byte HID keys) */
-EXPORT_SYMBOL(mouse_inject);                        /* ( — HID mouse) */
-EXPORT_SYMBOL(int13h_register_disk);                /* ( — MSC) */
+EXPORT_SYMBOL(keyboard_inject_scancode_sequence);   /* (s53.a — multi-byte HID keys) */
+EXPORT_SYMBOL(mouse_inject);                        /* (s53.a — HID mouse) */
+EXPORT_SYMBOL(int13h_register_disk);                /* (s53.a — MSC) */
 EXPORT_SYMBOL(int13h_unregister_disk);
 EXPORT_SYMBOL(int13h_lookup);
 

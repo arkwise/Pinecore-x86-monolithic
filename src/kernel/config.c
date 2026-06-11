@@ -21,6 +21,7 @@
 #include "fat.h"
 #include "keyboard.h"
 #include "serial.h"
+#include "klog.h"   /* row-24 status — only diagnostic visible on Vortex86 (serial dead) */
 
 /* From libc/string.c — no header for it in this tree. */
 extern int strcmp(const char *a, const char *b);
@@ -29,7 +30,7 @@ extern int strcmp(const char *a, const char *b);
 static int g_firstboot = 1;     /* default: assume first boot until proven otherwise */
 static int g_kbd_v86   = 0;     /* s51 — V86 BIOS-INT-16h kbd polling: off by default */
 
-/*  — USB stack policy keys (doc 54 §8). Defaults match doc. */
+/* s53.a — USB stack policy keys (doc 54 §8). Defaults match doc. */
 static int g_usb_enable             = 1;
 static int g_usb_trace              = 0;
 static int g_usb_kbd_initial_delay  = 500;
@@ -38,6 +39,17 @@ static int g_usb_kbd_repeat_rate    = 33;
 /* Phase 4.8 — network-provider config. Empty/zero means not configured. */
 static char     g_net_provider[32]  = {0};
 static uint32_t g_net_dns_server    = 0;     /* big-endian IPv4 */
+
+/* s54 — Tier-1 security mitigations. Default OFF for back-compat:
+ * existing setups see no behavior change. Setting `hardened = yes`
+ * in PCORE.CFG flips defaults for the other security keys (if those
+ * keys are absent from the file). Once explicitly set, a sub-key
+ * overrides whatever `hardened` would have implied. */
+static int g_hardened       = 0;
+static int g_net_v86_allowed = 1;   /* INT 0x80 reachable from V86? */
+static int g_kmd_allowlist_on = 0;  /* if 1, only kmds in g_kmd_allowlist load */
+static char g_kmd_allowlist[16][16] = {{0}};  /* up to 16 names of len 15 */
+static int g_kmd_allowlist_count = 0;
 
 #define CONFIG_PATH    "C:\\PCORE.CFG"
 #define CONFIG_BUFSZ   1024     /* file size cap — way more than M3 needs */
@@ -141,6 +153,7 @@ static void apply_kv(const char *key, const char *val) {
         serial_puts(g_kbd_v86 ? "yes\n" : "no\n");
     } else if (!strcmp(key, "usb_enable")) {
         g_usb_enable = parse_bool(val);
+        klog_stage(g_usb_enable ? "cfg: usb=yes" : "cfg: usb=no");
         serial_puts("config: usb_enable = ");
         serial_puts(g_usb_enable ? "yes\n" : "no\n");
     } else if (!strcmp(key, "usb_trace")) {
@@ -175,6 +188,39 @@ static void apply_kv(const char *key, const char *val) {
             serial_puts(val);
             serial_puts("\", ignoring\n");
         }
+    } else if (!strcmp(key, "hardened")) {
+        /* s54 Tier-1 master switch. Setting yes flips the defaults for
+         * other security keys; explicitly-set sub-keys still win. */
+        g_hardened = parse_bool(val);
+        if (g_hardened) {
+            g_net_v86_allowed   = 0;   /* V86 DOS apps cannot do sockets */
+            g_kmd_allowlist_on  = 1;   /* unknown kmds in \DRIVERS\ refused */
+        }
+        serial_puts("config: hardened = ");
+        serial_puts(g_hardened ? "yes\n" : "no\n");
+    } else if (!strcmp(key, "net_v86_allowed")) {
+        g_net_v86_allowed = parse_bool(val);
+        serial_puts("config: net_v86_allowed = ");
+        serial_puts(g_net_v86_allowed ? "yes\n" : "no\n");
+    } else if (!strcmp(key, "kmd_allow")) {
+        /* Whitespace- or comma-separated list of permitted .kmd names.
+         * Implicitly turns on the allow-list filter even without hardened=yes. */
+        const char *p = val;
+        g_kmd_allowlist_on = 1;
+        while (*p && g_kmd_allowlist_count < 16) {
+            while (*p == ' ' || *p == '\t' || *p == ',') p++;
+            if (!*p) break;
+            int j = 0;
+            while (*p && *p != ' ' && *p != '\t' && *p != ',' &&
+                   j < (int)sizeof(g_kmd_allowlist[0]) - 1) {
+                g_kmd_allowlist[g_kmd_allowlist_count][j++] = *p++;
+            }
+            g_kmd_allowlist[g_kmd_allowlist_count][j] = 0;
+            g_kmd_allowlist_count++;
+        }
+        serial_puts("config: kmd_allow = ");
+        serial_puthex((uint32_t)g_kmd_allowlist_count);
+        serial_puts(" entries\n");
     }
     /* Future M6+ keys: country, codepage, timezone, ... */
 }
@@ -187,8 +233,10 @@ void config_init(void) {
     int n;
     char *p;
 
+    klog_stage("cfg: open PCORE.CFG");
     fd = fat_open(CONFIG_PATH, 0);  /* read mode */
     if (fd < 0) {
+        klog_stage("cfg: NOT FOUND");
         serial_puts("config: no PCORE.CFG — firstboot=yes\n");
         g_firstboot = 1;
         return;
@@ -201,10 +249,12 @@ void config_init(void) {
     fat_close(fd);
 
     if (n <= 0) {
+        klog_stage("cfg: EMPTY");
         serial_puts("config: PCORE.CFG empty\n");
         return;
     }
     buf[n] = 0;
+    klog_stage("cfg: parsing");
 
     serial_puts("config: parsing PCORE.CFG (");
     {
@@ -320,4 +370,21 @@ const char *config_net_provider(void) {
 
 uint32_t config_net_dns_server(void) {
     return g_net_dns_server;
+}
+
+/* s54 Tier-1 security accessors. */
+int config_hardened(void)            { return g_hardened; }
+int config_net_v86_allowed(void)     { return g_net_v86_allowed; }
+int config_kmd_allowlist_active(void) { return g_kmd_allowlist_on; }
+
+/* Returns 1 if `name` is on the allow-list (or list inactive). Case-sensitive
+ * exact match against PCORE.CFG `kmd_allow` entries. Names are uppercased
+ * on disk per FAT 8.3 — caller passes whatever fat_find_first reports. */
+int config_kmd_is_allowed(const char *name) {
+    if (!g_kmd_allowlist_on) return 1;
+    if (!name) return 0;
+    for (int i = 0; i < g_kmd_allowlist_count; i++) {
+        if (!strcmp(name, g_kmd_allowlist[i])) return 1;
+    }
+    return 0;
 }

@@ -36,10 +36,24 @@
 #define ATA_SR_ERR  0x01
 
 /* Commands */
-#define ATA_CMD_READ     0x20
-#define ATA_CMD_WRITE    0x30
-#define ATA_CMD_IDENTIFY 0xEC
-#define ATA_CMD_FLUSH    0xE7
+#define ATA_CMD_READ           0x20
+#define ATA_CMD_WRITE          0x30
+#define ATA_CMD_IDENTIFY       0xEC
+#define ATA_CMD_FLUSH          0xE7
+#define ATA_CMD_PACKET         0xA0   /* ATAPI: send 12-byte SCSI CDB */
+#define ATA_CMD_IDENTIFY_PKT   0xA1   /* ATAPI device IDENTIFY */
+
+/* ATAPI signature in LBA-MID / LBA-HI after a failed ATA IDENTIFY */
+#define ATAPI_SIG_LBA_MID      0x14
+#define ATAPI_SIG_LBA_HI       0xEB
+#define SATAPI_SIG_LBA_MID     0x69
+#define SATAPI_SIG_LBA_HI      0x96
+
+/* SCSI MMC-2 commands used through ATAPI */
+#define SCSI_READ_10           0x28
+#define SCSI_READ_CAPACITY_10  0x25
+
+#define ATAPI_SECTOR_SIZE      2048
 
 /* Max drives: 2 channels x 2 drives */
 #define MAX_DRIVES 4
@@ -91,11 +105,100 @@ static void ata_extract_model(uint16_t *identify, char *model) {
         model[i] = '\0';
 }
 
-/* Probe a single drive */
+/* Read ATAPI capacity (READ CAPACITY (10), 8-byte response):
+ *   bytes 0..3 = last-LBA (big-endian)
+ *   bytes 4..7 = block size in bytes (big-endian)
+ * Returns 0 + writes sectors / sector_size on success, -1 on error. */
+static int atapi_read_capacity(uint8_t channel, uint8_t drive,
+                               uint32_t *last_lba, uint32_t *blk_size) {
+    uint16_t io  = channel_io[channel];
+    uint8_t  cdb[12] = {0};
+    uint8_t  resp[8];
+    int      i;
+
+    cdb[0] = SCSI_READ_CAPACITY_10;
+
+    /* Select drive */
+    outb(io + ATA_REG_DRVHEAD, 0xA0 | (drive << 4));
+    ata_delay(channel);
+
+    /* Tell the device we'll be transferring up to 8 bytes of response. */
+    outb(io + ATA_REG_FEATURES, 0);
+    outb(io + ATA_REG_LBA_MID,  8 & 0xFF);
+    outb(io + ATA_REG_LBA_HI,   (8 >> 8) & 0xFF);
+    outb(io + ATA_REG_COMMAND,  ATA_CMD_PACKET);
+
+    if (!ata_wait_ready(io)) return -1;
+    if (ata_wait_drq(io) < 0) return -1;
+
+    /* Send the 12-byte CDB as 6 words. */
+    for (i = 0; i < 6; i++)
+        outw(io + ATA_REG_DATA, cdb[i * 2] | ((uint16_t)cdb[i * 2 + 1] << 8));
+
+    if (!ata_wait_ready(io)) return -1;
+    if (ata_wait_drq(io) < 0) return -1;
+
+    /* Read 8 bytes back (4 words). */
+    for (i = 0; i < 4; i++) {
+        uint16_t w = inw(io + ATA_REG_DATA);
+        resp[i * 2]     = w & 0xFF;
+        resp[i * 2 + 1] = (w >> 8) & 0xFF;
+    }
+    *last_lba = ((uint32_t)resp[0] << 24) | ((uint32_t)resp[1] << 16) |
+                ((uint32_t)resp[2] <<  8) |  (uint32_t)resp[3];
+    *blk_size = ((uint32_t)resp[4] << 24) | ((uint32_t)resp[5] << 16) |
+                ((uint32_t)resp[6] <<  8) |  (uint32_t)resp[7];
+    return 0;
+}
+
+/* Probe an ATAPI device at (channel, drive) after the ATA IDENTIFY has
+ * returned the ATAPI signature in LBA-MID/HI. Sends IDENTIFY PACKET DEVICE
+ * (0xA1), parses the model string, then runs READ CAPACITY to learn the
+ * sector count. */
+static int atapi_probe_drive(uint8_t channel, uint8_t drive, struct ata_drive *drv) {
+    uint16_t io = channel_io[channel];
+    uint16_t identify[256];
+    uint32_t last_lba = 0, blk_size = 0;
+    int i;
+
+    /* Select drive, run ATAPI IDENTIFY. */
+    outb(io + ATA_REG_DRVHEAD, 0xA0 | (drive << 4));
+    ata_delay(channel);
+    outb(io + ATA_REG_COMMAND, ATA_CMD_IDENTIFY_PKT);
+    ata_delay(channel);
+
+    if (!ata_wait_ready(io)) return 0;
+    if (ata_wait_drq(io) < 0) return 0;
+
+    for (i = 0; i < 256; i++)
+        identify[i] = inw(io + ATA_REG_DATA);
+
+    drv->present     = 1;
+    drv->atapi       = 1;
+    drv->channel     = channel;
+    drv->drive       = drive;
+    drv->sector_size = ATAPI_SECTOR_SIZE;
+    ata_extract_model(identify, drv->model);
+
+    /* Capacity is reported via SCSI READ CAPACITY, not IDENTIFY. Some
+     * drives return zero immediately after power-up while spinning;
+     * we try once and accept a zero count rather than failing the probe. */
+    if (atapi_read_capacity(channel, drive, &last_lba, &blk_size) == 0) {
+        if (blk_size == 0) blk_size = ATAPI_SECTOR_SIZE;
+        drv->sectors     = last_lba + 1;
+        drv->sector_size = blk_size;
+    } else {
+        drv->sectors = 0;
+    }
+    return 1;
+}
+
+/* Probe a single drive (ATA disk or ATAPI device). Returns 1 if a drive
+ * was identified, 0 otherwise. Populates `drv` with the discovered fields. */
 static int ata_identify_drive(uint8_t channel, uint8_t drive, struct ata_drive *drv) {
     uint16_t io = channel_io[channel];
     uint16_t identify[256];
-    uint8_t status;
+    uint8_t  status, mid, hi;
     int i;
 
     /* Select drive */
@@ -108,7 +211,8 @@ static int ata_identify_drive(uint8_t channel, uint8_t drive, struct ata_drive *
     outb(io + ATA_REG_LBA_MID, 0);
     outb(io + ATA_REG_LBA_HI, 0);
 
-    /* Send IDENTIFY */
+    /* Send IDENTIFY (ATA). ATAPI devices abort this command with the
+     * signature 0x14/0xEB (PATAPI) or 0x69/0x96 (SATAPI) in LBA-MID/HI. */
     outb(io + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
     ata_delay(channel);
 
@@ -116,28 +220,32 @@ static int ata_identify_drive(uint8_t channel, uint8_t drive, struct ata_drive *
     if (status == 0x00 || status == 0xFF)
         return 0;  /* no drive */
 
-    /* Wait for BSY clear */
-    if (!ata_wait_ready(io))
-        return 0;
+    /* Read signature bytes BEFORE waiting on BSY — an aborting ATAPI
+     * drive may already have cleared BSY by now. */
+    mid = inb(io + ATA_REG_LBA_MID);
+    hi  = inb(io + ATA_REG_LBA_HI);
 
-    /* Check if this is ATAPI (not ATA) */
-    if (inb(io + ATA_REG_LBA_MID) != 0 || inb(io + ATA_REG_LBA_HI) != 0)
-        return 0;  /* not ATA */
+    if ((mid == ATAPI_SIG_LBA_MID  && hi == ATAPI_SIG_LBA_HI) ||
+        (mid == SATAPI_SIG_LBA_MID && hi == SATAPI_SIG_LBA_HI)) {
+        return atapi_probe_drive(channel, drive, drv);
+    }
 
-    /* Wait for DRQ */
-    if (ata_wait_drq(io) < 0)
-        return 0;
+    /* ATA path: wait for BSY clear + DRQ, then drain the 512-byte
+     * IDENTIFY block. */
+    if (!ata_wait_ready(io)) return 0;
+    if (mid != 0 || hi != 0)  return 0;  /* unknown non-ATA signature */
+    if (ata_wait_drq(io) < 0) return 0;
 
-    /* Read identify data */
     for (i = 0; i < 256; i++)
         identify[i] = inw(io + ATA_REG_DATA);
 
-    drv->present = 1;
-    drv->channel = channel;
-    drv->drive   = drive;
-    drv->sectors = identify[60] | ((uint32_t)identify[61] << 16);
+    drv->present     = 1;
+    drv->atapi       = 0;
+    drv->channel     = channel;
+    drv->drive       = drive;
+    drv->sectors     = identify[60] | ((uint32_t)identify[61] << 16);
+    drv->sector_size = 512;
     ata_extract_model(identify, drv->model);
-
     return 1;
 }
 
@@ -155,13 +263,13 @@ void ata_init(void) {
             if (ata_identify_drive(ch, d, &drives[idx])) {
                 serial_puts("ATA: drive ");
                 serial_puthex(idx);
-                serial_puts(" = ");
+                serial_puts(drives[idx].atapi ? " [ATAPI] = " : " [ATA] = ");
                 serial_puts(drives[idx].model);
                 serial_puts(" (");
                 serial_puthex(drives[idx].sectors);
-                serial_puts(" sectors, ");
-                serial_puthex((drives[idx].sectors / 2048));
-                serial_puts(" MB)\n");
+                serial_puts(" × ");
+                serial_puthex(drives[idx].sector_size);
+                serial_puts(" B)\n");
                 drive_count++;
             }
             idx++;
@@ -250,6 +358,59 @@ int ata_write(uint8_t drive_id, uint32_t lba, uint8_t count, const void *buffer)
     outb(io + ATA_REG_COMMAND, ATA_CMD_FLUSH);
     ata_wait_ready(io);
 
+    return 0;
+}
+
+int atapi_read(uint8_t drive_id, uint32_t lba, uint16_t count, void *buffer) {
+    struct ata_drive *drv;
+    uint16_t io;
+    uint16_t *buf = (uint16_t *)buffer;
+    uint8_t  cdb[12] = {0};
+    uint16_t byte_count;
+    uint32_t s;
+    int      i;
+
+    if (drive_id >= MAX_DRIVES || !drives[drive_id].present) return -1;
+    drv = &drives[drive_id];
+    if (!drv->atapi || count == 0) return -1;
+
+    io = channel_io[drv->channel];
+    byte_count = ATAPI_SECTOR_SIZE;  /* DRQ block size, one sector per burst */
+
+    /* READ(10) CDB: opcode + reserved + 4-byte big-endian LBA + reserved
+     * + 2-byte big-endian transfer length + control */
+    cdb[0] = SCSI_READ_10;
+    cdb[2] = (lba >> 24) & 0xFF;
+    cdb[3] = (lba >> 16) & 0xFF;
+    cdb[4] = (lba >>  8) & 0xFF;
+    cdb[5] =  lba        & 0xFF;
+    cdb[7] = (count >> 8) & 0xFF;
+    cdb[8] =  count       & 0xFF;
+
+    /* Select drive */
+    outb(io + ATA_REG_DRVHEAD, 0xA0 | (drv->drive << 4));
+    ata_delay(drv->channel);
+
+    /* Set PACKET transfer envelope: byte-count limit per DRQ burst. */
+    outb(io + ATA_REG_FEATURES, 0);
+    outb(io + ATA_REG_LBA_MID,  byte_count & 0xFF);
+    outb(io + ATA_REG_LBA_HI,   (byte_count >> 8) & 0xFF);
+    outb(io + ATA_REG_COMMAND,  ATA_CMD_PACKET);
+
+    if (!ata_wait_ready(io)) return -1;
+    if (ata_wait_drq(io) < 0) return -1;
+
+    /* Ship the 12-byte CDB as 6 words. */
+    for (i = 0; i < 6; i++)
+        outw(io + ATA_REG_DATA, cdb[i * 2] | ((uint16_t)cdb[i * 2 + 1] << 8));
+
+    /* Drain one sector per DRQ. */
+    for (s = 0; s < count; s++) {
+        if (!ata_wait_ready(io)) return -1;
+        if (ata_wait_drq(io) < 0) return -1;
+        for (i = 0; i < ATAPI_SECTOR_SIZE / 2; i++)
+            buf[s * (ATAPI_SECTOR_SIZE / 2) + i] = inw(io + ATA_REG_DATA);
+    }
     return 0;
 }
 

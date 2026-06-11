@@ -19,11 +19,14 @@ struct mz_reloc {
     uint16_t segment;
 };
 
-int exe_load(const char *filename, const char *cmdline, struct exe_info *info) {
+int exe_load(const char *filename, const char *cmdline, struct exe_info *info,
+             uint16_t env_seg, uint16_t arena_paras) {
     int fd;
     struct mz_header hdr;
     uint32_t header_size, image_size, file_size;
-    uint16_t psp_seg, load_seg, env_seg;
+    uint16_t psp_seg, load_seg;
+    uint16_t arena_top;        /* first paragraph past this task's arena */
+    uint16_t mcb_size_paras;   /* program block size for the MCB */
     uint8_t *load_addr;
     int bytes_read;
     int i;
@@ -62,18 +65,21 @@ int exe_load(const char *filename, const char *cmdline, struct exe_info *info) {
     serial_puthex(hdr.num_relocs);
     serial_puts("\n");
 
-    /* Memory layout:
-     *   0x1000:0 = environment block
-     *   0x1100:0 = PSP (256 bytes = 0x10 paragraphs)
-     *   0x1110:0 = EXE image (load segment)
+    /* Memory layout (per-V86-task arena):
+     *   env_seg:0       = environment block (env MCB at env_seg-1)
+     *   env_seg+0x100:0 = PSP (256 bytes = 0x10 paragraphs)
+     *   env_seg+0x110:0 = EXE image (load segment)
+     *   arena_top       = env_seg + arena_paras
      */
-    env_seg  = 0x1000;
-    psp_seg  = 0x1100;
-    load_seg = 0x1110;  /* PSP segment + 0x10 (256 bytes) */
+    psp_seg   = env_seg + 0x100;
+    load_seg  = psp_seg + 0x10;
+    arena_top = env_seg + arena_paras;
+    /* Program block owns paragraphs psp_seg..arena_top exclusive. */
+    mcb_size_paras = arena_top - psp_seg - 1;  /* -1 for psp_seg MCB header */
 
-    /* Check if image fits in conventional memory */
-    if ((uint32_t)load_seg * 16 + image_size > 0x90000) {
-        serial_puts("EXE: image too large for conventional memory\n");
+    /* Check if image fits inside this task's arena */
+    if ((uint32_t)load_seg * 16 + image_size > (uint32_t)arena_top * 16) {
+        serial_puts("EXE: image too large for task arena\n");
         fat_close(fd);
         return -1;
     }
@@ -87,8 +93,8 @@ int exe_load(const char *filename, const char *cmdline, struct exe_info *info) {
         uint8_t *emcb = (uint8_t *)(((uint32_t)(env_seg - 1)) << 4);
         *(uint16_t *)(emcb + 3) = psp_seg - 1 - env_seg;
     }
-    mcb_setup(psp_seg, psp_seg, 0x7000, 'Z');  /* program block MCB */
-    psp_setup(psp_seg, env_seg, 0x9000, cmdline);
+    mcb_setup(psp_seg, psp_seg, mcb_size_paras, 'Z');  /* program block MCB */
+    psp_setup(psp_seg, env_seg, arena_top, cmdline);
 
     /* Seek past header to the image data */
     fat_seek(fd, header_size);

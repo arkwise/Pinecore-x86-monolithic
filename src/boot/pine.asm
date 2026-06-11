@@ -627,7 +627,7 @@ saved_sp:         dw 0
 saved_pic1:       db 0
 saved_pic2:       db 0
 
-msg_start:        db 'Pinecore Kernel Loader v0.2', 13, 10
+msg_start:        db 'Pinecore Kernel Loader v0.2.0.a', 13, 10
                   db 'Loading KERNEL.BIN...', 13, 10, '$'
 msg_loaded:       db 'Kernel loaded.', 13, 10, '$'
 msg_switching:    db 'Switching to protected mode...', 13, 10, '$'

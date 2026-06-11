@@ -159,49 +159,28 @@ void pci_init(void) {
     serial_puthex(usb_controller_count);
     serial_puts(" USB host controller(s) found\n");
 
-    /* VGA summary so the user can see USB info without COM1 */
-    if (usb_controller_count == 0) {
-        vga_puts("  [..] PCI: no USB controllers detected\n");
-        return;
-    }
-    for (int i = 0; i < usb_controller_count; i++) {
-        const struct pci_dev *d = &usb_controllers[i];
-        const char *hc;
-        switch (d->prog_if) {
-        case PCI_PROGIF_UHCI: hc = "UHCI"; break;
-        case PCI_PROGIF_OHCI: hc = "OHCI"; break;
-        case PCI_PROGIF_EHCI: hc = "EHCI"; break;
-        case PCI_PROGIF_XHCI: hc = "xHCI"; break;
-        default:              hc = "USB?"; break;
-        }
-        char line[80];
-        const char *p;
+    /* VGA: one-line count only — no per-controller spam.
+     *
+     * Background (s53.diag SESSION-STATE + this session): on Vortex86,
+     * PCI cfg-space returns garbage for unimplemented slots, so the
+     * per-controller summary previously produced up to 8 lines of bogus
+     * [USB?] data that scrolled real diagnostics off-screen. Per-
+     * controller info still goes to serial for QEMU debugging via
+     * describe(); on Vortex86 the user can read row 24 (klog) to see
+     * actual init progress without this noise. */
+    {
+        char line[64];
         int n = 0;
-        line[n++] = ' ';
-        line[n++] = ' ';
-        line[n++] = '[';
-        for (p = hc; *p; p++) line[n++] = *p;
-        line[n++] = ']';
-        line[n++] = ' ';
-        for (p = "USB HC at "; *p; p++) line[n++] = *p;
-        const char hex[] = "0123456789ABCDEF";
-        line[n++] = hex[(d->bus >> 4) & 0xF];
-        line[n++] = hex[d->bus & 0xF];
-        line[n++] = ':';
-        line[n++] = hex[(d->dev >> 4) & 0xF];
-        line[n++] = hex[d->dev & 0xF];
-        line[n++] = '.';
-        line[n++] = hex[d->fn & 0xF];
-        for (p = "  VID:"; *p; p++) line[n++] = *p;
-        for (int s = 12; s >= 0; s -= 4) line[n++] = hex[(d->vendor >> s) & 0xF];
-        line[n++] = ' ';
-        line[n++] = 'I';
-        line[n++] = 'R';
-        line[n++] = 'Q';
-        line[n++] = ':';
-        line[n++] = hex[(d->irq >> 4) & 0xF];
-        line[n++] = hex[d->irq & 0xF];
-        line[n++] = '\n';
+        line[n++] = ' '; line[n++] = ' '; line[n++] = '[';
+        line[n++] = '.'; line[n++] = '.'; line[n++] = ']'; line[n++] = ' ';
+        const char *p = "PCI: ";
+        while (*p) line[n++] = *p++;
+        if (usb_controller_count == 0) line[n++] = '0';
+        else if (usb_controller_count < 10) line[n++] = '0' + usb_controller_count;
+        else { line[n++] = '0' + (usb_controller_count / 10);
+               line[n++] = '0' + (usb_controller_count % 10); }
+        p = " USB controller(s) detected\n";
+        while (*p) line[n++] = *p++;
         line[n]   = '\0';
         vga_puts(line);
     }
@@ -216,7 +195,7 @@ const struct pci_dev *pci_usb_get(int index) {
     return &usb_controllers[index];
 }
 
-/*  — generic class-match enumerator. Re-scans the bus on each
+/* s53.a — generic class-match enumerator. Re-scans the bus on each
  * call (cheap: single-tier scan, ~10ms). prog_if=0xFF wildcards.
  * Returns 0 on match (fills *out), -1 if no Nth match. */
 int pci_find_class(uint8_t class_code, uint8_t subclass, uint8_t prog_if,

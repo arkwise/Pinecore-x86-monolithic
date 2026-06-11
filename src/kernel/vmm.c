@@ -14,6 +14,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "serial.h"
+#include "v86.h"
 
 /* Page directory -- 1024 entries, must be 4KB aligned */
 static uint32_t page_directory[1024] __attribute__((aligned(4096)));
@@ -81,6 +82,11 @@ void vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags) {
          * protection is enforced by the PTE's U bit. P|W|U here means
          * "delegate to PTE"; PDE U=0 would block user access regardless. */
         page_directory[dir_idx] = pt_phys | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+
+        /* Mirror the new PDE into every V86 task's private page directory
+         * so DPMI / kernel dynamic mappings remain visible no matter which
+         * task's CR3 is currently loaded. */
+        v86_propagate_pde(dir_idx, page_directory[dir_idx]);
     }
 
     page_table = (uint32_t *)(page_directory[dir_idx] & 0xFFFFF000);
@@ -117,4 +123,16 @@ uint32_t vmm_get_physical(uint32_t virt) {
         return 0;
 
     return (page_table[table_idx] & 0xFFFFF000) | (virt & 0xFFF);
+}
+
+uint32_t vmm_kernel_pd_phys(void) {
+    return (uint32_t)page_directory;
+}
+
+const uint32_t *vmm_kernel_pt0(void) {
+    return kernel_page_tables[0];
+}
+
+void vmm_load_cr3(uint32_t pd_phys) {
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(pd_phys) : "memory");
 }

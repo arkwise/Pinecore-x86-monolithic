@@ -7,9 +7,10 @@
 ; Job:
 ;   1. Set up stack + segments + A20
 ;   2. Copy BPB from 0:0x7C00 into local storage
-;   3. Read FAT16 FAT + root directory from disk (low-memory buffers)
+;   3. Read FAT + root directory from disk (low-memory buffers)
 ;   4. Find KERNEL.BIN in root directory
-;   5. Walk cluster chain, read each cluster into a low-memory kernel buffer
+;   5. Walk cluster chain (FAT12 or FAT16, detected from cluster count),
+;      reading each cluster into a low-memory kernel buffer
 ;      (we cap the kernel at 320 KB; that's well above the current 156 KB)
 ;   6. Set up GDT + identity-mapped paging (first 4MB)
 ;   7. Enter PM, rep movsd the kernel buffer to 0x100000+
@@ -19,7 +20,8 @@
 ;
 ; Trace markers to COM1 (0x3F8):
 ;   's' start, 'B' BPB copied, 'A' A20,
-;   'F' FAT read, 'D' root dir read, 'K' KERNEL.BIN found,
+;   'F' FAT read, '2' FAT12 detected (else FAT16),
+;   'D' root dir read, 'K' KERNEL.BIN found,
 ;   '.' per cluster, '|' chain done,
 ;   'G' GDT loaded, 'P' paging up, 'J' jumping to kernel.
 ;
@@ -70,20 +72,28 @@ start:
     mov   al, 's'
     call  trace
 
-    ; --- Query LBA extensions
+    ; --- Query LBA extensions — HDD ONLY.
+    ; On floppy (DL < 0x80) AH=41 isn't meaningful and on some old BIOSes
+    ; (e.g. AMI 1995) it can hang. Skip entirely.
+    mov   byte [has_lba], 0
+    cmp   byte [boot_drive], 0x80
+    jb    .no_lba_init
     push  dx
     mov   ah, 0x41
     mov   bx, 0x55AA
     int   0x13
     pop   dx
-    mov   byte [has_lba], 0
     jc    .no_lba_init
     cmp   bx, 0xAA55
     jne   .no_lba_init
     mov   byte [has_lba], 1
 .no_lba_init:
 
-    ; --- Query BIOS geometry (used by CHS path)
+    ; --- Query BIOS geometry — HDD ONLY.
+    ; On floppy, BPB on disk is authoritative; geometry is filled in after
+    ; the BPB copy below.
+    cmp   byte [boot_drive], 0x80
+    jb    .geom_skip
     push  dx
     mov   ah, 0x08
     mov   dl, [boot_drive]
@@ -101,6 +111,10 @@ start:
     pop   dx
     mov   word [bios_heads], 16
     mov   word [bios_spt], 63
+    jmp   .geom_done
+.geom_skip:
+    mov   word [bios_heads], 0      ; will be replaced from BPB below
+    mov   word [bios_spt], 0
 .geom_done:
 
     ; --- Copy BPB from 0:0x7C00+11 → DS:bpb_copy
@@ -120,16 +134,52 @@ start:
     mov   al, 'B'
     call  trace
 
-    ; --- Enable A20 (port 0x92 fast method)
-    in    al, 0x92
+    ; --- Floppy geometry: take spt/heads from BPB if BIOS path was skipped.
+    cmp   word [bios_spt], 0
+    jne   .bpb_geom_ok
+    mov   ax, [spt_lc]
+    mov   [bios_spt], ax
+    mov   ax, [heads_lc]
+    mov   [bios_heads], ax
+.bpb_geom_ok:
+
+    ; --- Enable A20 — port 0x92 first, then verify; fall back to 8042
+    ; keyboard-controller method if 0x92 didn't take. Skipping BIOS
+    ; INT 15h AX=2401 — SeaBIOS misbehaves on it.
+    in    al, 0x92                ; Fast A20 via system control port
     test  al, 2
-    jnz   .a20_done
+    jnz   .a20_92_skip
     or    al, 2
     and   al, 0xFE                ; don't reset machine
     out   0x92, al
+.a20_92_skip:
+
+    call  a20_check
+    test  al, al
+    jnz   .a20_done
+
+    ; A20 still gated — try 8042 keyboard-controller method, then verify.
+    call  a20_via_kbc
+    call  a20_check
+    test  al, al
+    jnz   .a20_done
+
+    ; All methods failed — halt with distinct marker so we know it was A20.
+    mov   al, 'X'
+    call  trace
+    jmp   halt
+
 .a20_done:
     mov   al, 'A'
     call  trace
+
+    ; Reset disk controller before our reads. Floppy boots especially need
+    ; this — motor may have spun down between VBR handoff and here.
+    push  dx
+    xor   ax, ax
+    mov   dl, [boot_drive]
+    int   0x13
+    pop   dx
 
     ; ----------------------------------------------------------------------
     ; Compute on-disk locations of FAT, root dir, data area.
@@ -160,6 +210,46 @@ start:
     mov   [data_start_lba], eax
 
     ; ----------------------------------------------------------------------
+    ; Detect FAT12 vs FAT16 from total cluster count (per MS FAT spec).
+    ;   total_sectors = large_total_lc if non-zero else small_total_lc
+    ;   data_sectors  = total_sectors - reserved - num_fats*spf - root_dir_sectors
+    ;   clusters      = data_sectors / spc
+    ;   FAT12 if clusters < 4085, else FAT16.
+    ; ----------------------------------------------------------------------
+    mov   eax, [large_total_lc]
+    test  eax, eax
+    jnz   .have_total
+    movzx eax, word [small_total_lc]
+.have_total:
+    movzx ecx, word [reserved_lc]
+    sub   eax, ecx
+    movzx ecx, byte [num_fats_lc]
+    movzx edx, word [fat16_spf_lc]
+    imul  ecx, edx
+    sub   eax, ecx
+    sub   eax, [root_dir_sectors]
+    movzx ecx, byte [spc_lc]
+    xor   edx, edx
+    div   ecx                     ; eax = total_clusters
+    mov   byte [is_fat12], 0
+    cmp   eax, 4085
+    jae   .fat_type_done
+    mov   byte [is_fat12], 1
+.fat_type_done:
+
+    ; Sanity-check BIOS geometry — if zero, force 1.44 MB floppy defaults
+    ; (some BIOSes return invalid geometry on floppy; div by zero would
+    ; happen later in lba_to_chs).
+    cmp   word [bios_spt], 0
+    jne   .geom_spt_ok
+    mov   word [bios_spt], 18
+.geom_spt_ok:
+    cmp   word [bios_heads], 0
+    jne   .geom_heads_ok
+    mov   word [bios_heads], 2
+.geom_heads_ok:
+
+    ; ----------------------------------------------------------------------
     ; Read entire FAT into FAT_BUF via chunked reads
     ; ----------------------------------------------------------------------
     mov   eax, [fat_start_lba]
@@ -170,6 +260,12 @@ start:
 
     mov   al, 'F'
     call  trace
+
+    cmp   byte [is_fat12], 0
+    je    .fat_traced
+    mov   al, '2'
+    call  trace
+.fat_traced:
 
     ; ----------------------------------------------------------------------
     ; Read root directory into ROOT_BUF via chunked reads
@@ -252,7 +348,12 @@ start:
 
 .chain:
     movzx eax, word [kernel_cluster]
-    cmp   ax, 0xFFF8
+    mov   bx, 0xFFF8              ; FAT16 EOF threshold
+    cmp   byte [is_fat12], 0
+    je    .have_eof_threshold
+    mov   bx, 0x0FF8              ; FAT12 EOF threshold
+.have_eof_threshold:
+    cmp   ax, bx
     jae   .chain_done
 
     ; Compute on-disk LBA
@@ -276,13 +377,35 @@ start:
     shl   eax, 9
     add   [kernel_load_lin], eax
 
-    ; --- Look up next cluster in FAT16
+    ; --- Look up next cluster in FAT (FAT12 or FAT16)
     push  es
     mov   ax, FAT_BUF_SEG
     mov   es, ax
+    cmp   byte [is_fat12], 0
+    je    .fat16_lookup
+
+    ; FAT12: byte offset of entry = cluster + (cluster >> 1) = (cluster*3)/2.
+    ; Read 16-bit window straddling the entry; even cluster keeps low 12 bits,
+    ; odd cluster keeps high 12 bits (12-bit entries are packed 3 bytes / 2).
+    movzx ebx, word [kernel_cluster]
+    mov   eax, ebx
+    shr   eax, 1
+    add   ebx, eax                ; ebx = byte offset
+    mov   ax, [es:bx]
+    test  byte [kernel_cluster], 1
+    jnz   .fat12_odd
+    and   ax, 0x0FFF
+    jmp   .lookup_store
+.fat12_odd:
+    shr   ax, 4
+    jmp   .lookup_store
+
+.fat16_lookup:
     movzx ebx, word [kernel_cluster]
     shl   ebx, 1
     mov   ax, [es:bx]
+
+.lookup_store:
     mov   [kernel_cluster], ax
     pop   es
 
@@ -291,7 +414,8 @@ start:
     jmp   .chain
 
 .chain_done:
-    mov   al, '|'
+    ; Use '@' — '|' is indistinguishable from BIOS-box vertical-bar borders
+    mov   al, '@'
     call  trace
 
     ; ----------------------------------------------------------------------
@@ -382,11 +506,13 @@ pm_entry32:
     shr   ecx, 2
     rep   movsd                   ; copy kernel
 
-    ; Zero from KERNEL_DEST + actual_size to KERNEL_DEST + 0x80000 (512 KB
-    ; total). Covers all of .bss with margin; heap is at 0x17E000 onward
-    ; and gets re-initialized by the kernel, so a few KB of overlap is OK.
+    ; Zero from KERNEL_DEST + actual_size to KERNEL_DEST + 0xA0000 (640 KB
+    ; total). Covers all of .bss (current _kernel_end is ~0x1942C0 = 595 KB
+    ; from KERNEL_DEST) with margin. Matches PINE.COM's BSS-zero range
+    ; (0x1A0000 upper bound). Heap starts past _kernel_end and the kernel
+    ; re-initializes it, so a few KB of overlap is OK.
     ; EDI already points at KERNEL_DEST + actual_size (advanced by movsd).
-    mov   ecx, 0x80000            ; total 512 KB range from KERNEL_DEST
+    mov   ecx, 0xA0000            ; total 640 KB range from KERNEL_DEST
     sub   ecx, edx                ; ecx = bytes left to zero
     shr   ecx, 2
     xor   eax, eax
@@ -487,8 +613,8 @@ read_chunked_chs:
     mov   al, 1
     mov   ch, [chs_cyl_low]
     mov   cl, [chs_sec_cyl_hi]
+    push  dx                      ; save dest seg BEFORE clobbering DH/DL
     mov   dh, [chs_head]
-    push  dx                      ; save dest seg
     mov   dl, [boot_drive]
     pop   bx                      ; bx = dest seg
     push  es
@@ -564,6 +690,94 @@ trace:
     pop   ax
     ret
 
+; ----------------------------------------------------------------------------
+; a20_check — verify A20 is open by writing distinct values to 0:0x600 and
+; FFFF:0x610 (linear 0x100600 if A20 on, else aliases to 0:0x600).
+; Returns AL = 1 if A20 is open, 0 if still gated. Preserves all other regs.
+; ----------------------------------------------------------------------------
+a20_check:
+    push  ds
+    push  es
+    push  si
+    push  di
+    push  bx
+    pushf
+    cli
+
+    xor   ax, ax
+    mov   ds, ax
+    mov   si, 0x0600              ; DS:SI = 0:0x600
+
+    mov   ax, 0xFFFF
+    mov   es, ax
+    mov   di, 0x0610              ; ES:DI = FFFF:0x610 = 0x100600 / 0:0x600
+
+    mov   bl, [ds:si]             ; save original at 0:0x600
+    mov   bh, [es:di]             ; save original at 0x100600 (or alias)
+
+    mov   byte [ds:si], 0x55
+    mov   byte [es:di], 0xAA
+    mov   al, [ds:si]             ; if A20 on: 0x55; if off: 0xAA (overwrote)
+
+    mov   [es:di], bh             ; restore
+    mov   [ds:si], bl
+
+    cmp   al, 0x55
+    je    .a20_check_on
+    xor   al, al                  ; A20 off
+    jmp   .a20_check_ret
+.a20_check_on:
+    mov   al, 1                   ; A20 on
+.a20_check_ret:
+    popf
+    pop   bx
+    pop   di
+    pop   si
+    pop   es
+    pop   ds
+    ret
+
+; ----------------------------------------------------------------------------
+; a20_via_kbc — enable A20 via 8042 keyboard controller output-port bit 1.
+; Trashes AX.
+; ----------------------------------------------------------------------------
+a20_via_kbc:
+    call  kbc_wait_idle
+    mov   al, 0xAD                ; disable keyboard
+    out   0x64, al
+    call  kbc_wait_idle
+    mov   al, 0xD0                ; read output port
+    out   0x64, al
+    call  kbc_wait_data
+    in    al, 0x60                ; current output-port byte
+    push  ax
+    call  kbc_wait_idle
+    mov   al, 0xD1                ; write output port
+    out   0x64, al
+    call  kbc_wait_idle
+    pop   ax
+    or    al, 0x02                ; set bit 1 (A20)
+    out   0x60, al
+    call  kbc_wait_idle
+    mov   al, 0xAE                ; re-enable keyboard
+    out   0x64, al
+    call  kbc_wait_idle
+    ret
+
+; Wait until 8042 input buffer is empty (bit 1 of status reg = 0).
+kbc_wait_idle:
+    in    al, 0x64
+    test  al, 0x02
+    jnz   kbc_wait_idle
+    ret
+
+; Wait until 8042 output buffer has data (bit 0 of status reg = 1).
+kbc_wait_data:
+    in    al, 0x64
+    test  al, 0x01
+    jz    kbc_wait_data
+    ret
+
 fatal:
     mov   al, '!'
     call  trace
@@ -582,6 +796,7 @@ align 4
 boot_drive:        db 0
 partition_lba:     dd 0
 has_lba:           db 0
+is_fat12:          db 0
 bios_heads:        dw 0
 bios_spt:          dw 0
 chs_head:          db 0

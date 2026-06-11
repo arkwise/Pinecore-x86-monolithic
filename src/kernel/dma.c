@@ -122,6 +122,14 @@ void dma_free(void *p) {
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags));
     n = dma_run_units[u];
     if (n) {
+        /* s54 — zero before release so the next allocation cannot read
+         * the previous transfer's payload. Cheap (~16 byte granule × few
+         * KB max per alloc) and closes the inter-driver information-leak
+         * surface that the threat-sidebar §4 flagged. */
+        uint8_t *bytes = (uint8_t *)p;
+        uint32_t total = n * DMA_GRANULE;
+        for (uint32_t i = 0; i < total; i++) bytes[i] = 0;
+
         range_mark_free(u, n);
         dma_run_units[u] = 0;
         dma_units_used  -= n;

@@ -17,6 +17,7 @@
 #include "keyboard.h"
 #include "rtc.h"
 #include "io.h"
+#include "module.h"  /* module_resolve — for cmd_wifi → iwi.kmd */
 
 /* Shell state.
  * `shell_vt` resolves to the current task's bound VT on every read, so
@@ -306,7 +307,7 @@ static void cmd_help(const char *args) {
     (void)args;
     PAGER_RESET();
     vt_set_color(shell_vt, 14, 0);
-    if (pager_print("Pinecore Commando 0.2.0 - built-in commands\n")) return;
+    if (pager_print("Pinecore Commando v0.2.0.a - built-in commands\n")) return;
     vt_set_color(shell_vt, 7, 0);
     if (pager_print("\n  File system:\n")) return;
     if (pager_print("    ls / dir [path]    List directory\n")) return;
@@ -329,6 +330,8 @@ static void cmd_help(const char *args) {
     if (pager_print("    echo <text>        Print text\n")) return;
     if (pager_print("\n  Localization:\n")) return;
     if (pager_print("    layout             Show / list / set keyboard layout (us, de, ...)\n")) return;
+    if (pager_print("\n  Network:\n")) return;
+    if (pager_print("    wifi               Probe + report Intel 2200/2915 WiFi state (iwi.kmd)\n")) return;
     if (pager_print("\n  Sessions:\n")) return;
     if (pager_print("    dos                Open COMMAND.COM on a new VT\n")) return;
     if (pager_print("    shell              Open new Pinecore Commando on a new VT\n")) return;
@@ -343,11 +346,11 @@ static void cmd_help(const char *args) {
 static void cmd_ver(const char *args) {
     (void)args;
     vt_set_color(shell_vt, 10, 0);  /* light green */
-    print("Pinecore Kernel 0.2.0 (");
+    print("Pinecore Kernel v0.2.0.a (");
     print(__DATE__);
     print(")\n");
     vt_set_color(shell_vt, 7, 0);   /* light grey */
-    print("i386 preemptive multitasking monolithic kernel, DPMI 0.9 host\n");
+    print("i386 preemptive multitasking microkernel, DPMI 0.9 host\n");
     print("Built with i686-elf-gcc, NASM\n");
 }
 
@@ -482,11 +485,15 @@ static void cmd_cd(const char *args) {
         return;
     }
 
-    /* Check for drive switch (e.g., "C:" or "A:") */
+    /* Check for drive switch (e.g., "C:" or "A:" or "D:\path"). Accepts
+     * any drive letter from A up to FAT_MAX_DRIVES — future ISO9660 +
+     * USB mounts will land here too. */
     if (dir[0] && dir[1] == ':' && (dir[2] == '\0' || dir[2] == '/' || dir[2] == '\\')) {
+        char letter = dir[0];
+        if (letter >= 'a' && letter <= 'z') letter -= 32;
         int d = -1;
-        if (dir[0] >= 'A' && dir[0] <= 'C') d = dir[0] - 'A';
-        if (dir[0] >= 'a' && dir[0] <= 'c') d = dir[0] - 'a';
+        if (letter >= 'A' && letter < 'A' + FAT_MAX_DRIVES)
+            d = letter - 'A';
         if (d >= 0 && fat_is_mounted(d)) {
             fat_set_drive(d);
             if (dir[2]) fat_chdir(dir + 2);
@@ -737,9 +744,45 @@ static void cmd_top(const char *args) {
 }
 
 static void cmd_dos(const char *args) {
+    /* dos                  → COMMAND.COM (FreeCom default)
+     * dos <name>           → <NAME>.COM in a new DOS VT
+     *
+     * Supports the shell-switch demo: `dos drdos`, `dos fdos`, `dos msdos`,
+     * `dos opendos`. The .COM extension is appended automatically when the
+     * caller didn't include one. */
+    const char *p = skip_spaces(args);
+    if (!*p) {
+        print("Opening COMMAND.COM...\n");
+        vt_create_dos();
+        return;
+    }
+    char bin[64];
+    int i = 0;
+    int has_dot = 0;
+    while (*p && *p != ' ' && i < (int)sizeof(bin) - 5) {
+        if (*p == '.') has_dot = 1;
+        bin[i++] = *p++;
+    }
+    if (!has_dot) {
+        bin[i++] = '.'; bin[i++] = 'C'; bin[i++] = 'O'; bin[i++] = 'M';
+    }
+    bin[i] = '\0';
+    print("Opening ");
+    print(bin);
+    print("...\n");
+    if (vt_create_dos_exec(bin, skip_spaces(p)) < 0) {
+        print("dos: ");
+        print(bin);
+        print(": failed to launch\n");
+    }
+}
+
+static void cmd_setup(const char *args) {
+    /* Phase 4.6.5 M4 — re-run the first-boot setup wizard on demand.
+     * Auto-runs at boot when config_is_firstboot() is true. */
     (void)args;
-    print("Opening COMMAND.COM...\n");
-    vt_create_dos();
+    extern void setup_run(int vt_num);
+    setup_run(shell_vt);
 }
 
 static void cmd_shell(const char *args) {
@@ -910,6 +953,33 @@ static void cmd_reboot(const char *args) {
     while (1) __asm__ volatile("hlt");
 }
 
+/* Phase 11 (WiFi) — `wifi` builtin: probe + report state of iwi.kmd.
+ *
+ * Calls iwi_test() in the loaded iwi.kmd module (EXPORT_SYMBOL_GPL).
+ * The module decides what to print; we just give it our vt-aware print
+ * so output lands in the active terminal. If iwi.kmd is not loaded
+ * (PCORE.CFG suppressed it, or it never got staged), say so.
+ *
+ * Future subcommands once iwi.kmd matures:
+ *   wifi              → state (current)
+ *   wifi scan         → scan results
+ *   wifi connect SSID → connect (open / WPA2-PSK)
+ *   wifi disconnect   → drop association
+ *   wifi status       → link quality / RSSI / current rate
+ */
+static void cmd_wifi(const char *args) {
+    (void)args;
+    typedef void (*iwi_test_fn)(void (*)(const char *));
+    iwi_test_fn test = (iwi_test_fn)module_resolve("iwi_test", 1);
+    if (!test) {
+        print("wifi: iwi.kmd not loaded\n");
+        print("  - is IWI.KMD in \\DRIVERS\\ on this disk?\n");
+        print("  - check serial log for autoload messages\n");
+        return;
+    }
+    test(print);
+}
+
 /* Phase 4.6.5 M2 — `layout` builtin: list / set / get keyboard layouts.
  *   layout            → show active layout
  *   layout list       → list all available layouts
@@ -1007,6 +1077,28 @@ static void execute(const char *cmdline) {
 
     if (!*cmd) return;  /* empty line */
 
+    /* Standalone drive-letter switch (DOS convention: `D:` alone changes
+     * the current drive, just like FreeCom). Detect "X:" or "X:" followed
+     * only by whitespace; cmd_cd still handles `cd X:\path` for combined
+     * switch+chdir. */
+    if (cmd[0] && cmd[1] == ':' &&
+        (cmd[2] == '\0' || cmd[2] == ' ' || cmd[2] == '\t' ||
+         cmd[2] == '\r' || cmd[2] == '\n')) {
+        char letter = cmd[0];
+        if (letter >= 'a' && letter <= 'z') letter -= 32;
+        if (letter >= 'A' && letter < 'A' + FAT_MAX_DRIVES) {
+            int d = letter - 'A';
+            if (fat_is_mounted(d)) {
+                fat_set_drive(d);
+                return;
+            }
+            print("Invalid drive specification\n");
+            return;
+        }
+        print("Invalid drive specification\n");
+        return;
+    }
+
     /* Find end of command word */
     args = cmd;
     while (*args && *args != ' ') args++;
@@ -1047,6 +1139,8 @@ static void execute(const char *cmdline) {
     if (strstart(cmd, "vt"))     { cmd_vt(args); return; }
     if (strstart(cmd, "top"))    { cmd_top(args); return; }
     if (strstart(cmd, "layout")) { cmd_layout(args); return; }  /* Phase 4.6.5 M2 */
+    if (strstart(cmd, "setup"))  { cmd_setup(args); return; }   /* Phase 4.6.5 M4 */
+    if (strstart(cmd, "wifi"))   { cmd_wifi(args); return; }    /* Phase 11 WiFi (iwi.kmd) */
     if (strstart(cmd, "exit"))  {
         print("Closing terminal...\n");
         if (vt_count_active() <= 1) {
@@ -1169,7 +1263,7 @@ void shell_entry(void) {
         extern const unsigned long pinecore_build_seq;
 
         vt_set_color(shell_vt, 14, 0);  /* yellow */
-        print("\nPinecore Commando 0.2.0 - i386 native [");
+        print("\nPinecore Commando v0.2.0.a - i386 native [");
         print(pinecore_build_date);
         print(" ");
         print(pinecore_build_time);
@@ -1200,7 +1294,7 @@ void shell_entry(void) {
 
     /* Banner */
     vt_set_color(shell_vt, 14, 0);  /* yellow */
-    print("  Pinecore Commando v0.2\n");
+    print("  Pinecore Commando v0.2.0.a\n");
     vt_set_color(shell_vt, 8, 0);   /* dark grey */
     print("  Type 'help' for commands, Alt+C for COMMAND.COM\n\n");
     vt_set_color(shell_vt, 7, 0);

@@ -24,6 +24,7 @@
 #include "keyboard.h"
 #include "dpmi.h"
 #include "vcpi.h"
+#include "vmm.h"
 
 static struct v86_task v86_tasks[V86_MAX_TASKS];
 
@@ -253,6 +254,25 @@ static void v86_emulate_int(struct v86_frame *frame, uint8_t int_num) {
     case 0x10: {
         /* BIOS Video services */
         uint8_t ah_vid = (frame->eax >> 8) & 0xFF;
+        /* Diagnostic — log every INT 10h call from a V86MT-owned task so we
+         * can see exactly what apps like EDIT.EXE try to do. INT 10h calls
+         * currently go to the kernel VGA (0xB8000), bypassing the V86MT
+         * shadow buffer — so TUI apps render to a hidden VT and the
+         * Pinecone FreeCom v86 window stays blank. Captured here pre-
+         * dispatch so we see the call EVEN when the sub-handler is a noop. */
+        if (v86_current_v86mt_client() >= 0) {
+            serial_puts("V86MT-INT10 AH=");
+            serial_puthex(ah_vid);
+            serial_puts(" AX=");
+            serial_puthex(frame->eax & 0xFFFF);
+            serial_puts(" BX=");
+            serial_puthex(frame->ebx & 0xFFFF);
+            serial_puts(" CX=");
+            serial_puthex(frame->ecx & 0xFFFF);
+            serial_puts(" DX=");
+            serial_puthex(frame->edx & 0xFFFF);
+            serial_puts("\n");
+        }
         switch (ah_vid) {
         case 0x00: {
             /* Set video mode: AL=mode */
@@ -528,8 +548,35 @@ static void v86_emulate_int(struct v86_frame *frame, uint8_t int_num) {
                 serial_puts("\n");
             }
         }
+        /* Phase 4.7 M6 — if the running V86 task is V86MT-owned, route
+         * blocking/peek reads to its per-VT kbd ring instead of the kernel
+         * VT key queue. The ring is fed by the PM client (typically the
+         * desktop) via INT 31h AX=0x0A03 or by direct writes through
+         * kbd_sel. */
+        int v86mt_cid = v86_current_v86mt_client();
+        int v86mt_h   = v86_current_v86mt_handle();
+        struct dpmi_v86mt_vt *vmtv = 0;
+        if (v86mt_cid >= 0 && v86mt_h > 0)
+            vmtv = v86mt_vt_get(v86mt_cid, (uint16_t)v86mt_h);
+
         if (ah_kb == 0x00 || ah_kb == 0x10) {
             /* Blocking read: AH=scan code, AL=ASCII */
+            if (vmtv) {
+                uint16_t entry = 0;
+                /* Real blocking — task goes BLOCKED on the v86mt kbd ring.
+                 * DESKTOP runs uncontested until v86mt_kbd_inject wakes us
+                 * (AX=0x0A03 calls sched_unblock with our VT handle). The
+                 * loop handles the small inject-races-block window: if we
+                 * lose the race, we sleep and wait for the next inject. */
+                while (!v86mt_kbd_pop(vmtv, &entry))
+                    sched_block(BLOCK_V86MT_KBD, v86mt_h);
+                frame->eax = (frame->eax & 0xFFFF0000) | entry;
+                frame->eflags &= ~0x40;
+                serial_puts("V86MT: INT 16h key entry=");
+                serial_puthex(entry);
+                serial_puts("\n");
+                break;
+            }
             int vt_num = -1;
             if (current_v86 >= 0) {
                 /* Find the VT for this V86 task */
@@ -570,6 +617,16 @@ static void v86_emulate_int(struct v86_frame *frame, uint8_t int_num) {
             }
         } else if (ah_kb == 0x01 || ah_kb == 0x11) {
             /* Check key: ZF=1 if no key, ZF=0 if key ready */
+            if (vmtv) {
+                uint16_t entry = 0;
+                if (v86mt_kbd_peek(vmtv, &entry)) {
+                    frame->eax = (frame->eax & 0xFFFF0000) | entry;
+                    frame->eflags &= ~0x40;
+                } else {
+                    frame->eflags |= 0x40;
+                }
+                break;
+            }
             int vt_num = -1;
             if (current_v86 >= 0) {
                 int si;
@@ -2194,6 +2251,21 @@ int v86_current_v86mt_handle(void) {
     return v86_tasks[current_v86].v86mt_vt_handle;
 }
 
+void v86_set_mcb_root(int task_id, uint16_t root_seg) {
+    if (task_id < 0 || task_id >= V86_MAX_TASKS) return;
+    v86_tasks[task_id].mcb_root = root_seg;
+}
+
+uint16_t v86_current_mcb_root(void) {
+    /* Fallback to legacy system MCB at 0x0040 when no V86 task is current
+     * (e.g. kernel-mode DOS calls before any task launches) or when the
+     * current task hasn't been stamped yet. */
+    if (current_v86 < 0 || current_v86 >= V86_MAX_TASKS) return 0x0040;
+    if (!v86_tasks[current_v86].active) return 0x0040;
+    uint16_t root = v86_tasks[current_v86].mcb_root;
+    return root ? root : 0x0040;
+}
+
 void v86_init(void) {
     int i;
     for (i = 0; i < V86_MAX_TASKS; i++)
@@ -2296,10 +2368,212 @@ void v86_init(void) {
     serial_puts("V86: monitor ready\n");
 }
 
+/* Build a per-task page directory + low-1MB page table so this V86 task
+ * sees its own private conventional memory.
+ *
+ * Virtual layout for the task:
+ *   0x00000..0x00FFF (page 0)        — shared, identity-mapped (IVT + BDA)
+ *   0x01000..0x9FFFF (pages 1..159)  — per-task private allocations
+ *   0xA0000..0xBFFFF (pages 160..191)— shared identity (VGA framebuffer)
+ *   0xC0000..0xFFFFF (pages 192..255)— shared identity (BIOS ROM)
+ *
+ * PTEs 256..1023 of the low-1MB PT are cloned from kernel_page_tables[0]
+ * so virtual 0x100000..0x3FFFFF stays kernel-identity-mapped (the kernel
+ * stack, heap, .text, and v86_task struct itself all live in that range).
+ * PD entries 1..7 are cloned verbatim from the kernel PD so kernel virtual
+ * 0x400000..0x1FFFFFF (kernel BSS + PMM range up to 32 MB) keeps working.
+ *
+ * Returns 0 on success, -1 on allocation failure (leaves no partial state). */
+static int v86_alloc_paging(struct v86_task *vt) {
+    uint32_t *pd, *pt;
+    uint32_t i;
+    int allocated_count = 0;
+
+    vt->pd_phys     = 0;
+    vt->pt_low_phys = 0;
+    for (i = 0; i < 160; i++) vt->mem_pages[i] = 0;
+
+    vt->pd_phys = pmm_alloc_page();
+    if (!vt->pd_phys) return -1;
+    vt->pt_low_phys = pmm_alloc_page();
+    if (!vt->pt_low_phys) goto fail;
+
+    for (i = 1; i < 160; i++) {
+        uint32_t p = pmm_alloc_page();
+        if (!p) goto fail;
+        vt->mem_pages[i] = p;
+        allocated_count++;
+        /* Zero the page so V86 code that reads uninitialized memory gets
+         * 0x00, matching real-DOS behavior. */
+        {
+            uint32_t *zp = (uint32_t *)p;
+            uint32_t k;
+            for (k = 0; k < PAGE_SIZE / 4; k++) zp[k] = 0;
+        }
+    }
+    /* Page 0 = shared IVT/BDA (identity-mapped). */
+    vt->mem_pages[0] = 0x00000000;
+
+    pd = (uint32_t *)vt->pd_phys;
+    pt = (uint32_t *)vt->pt_low_phys;
+
+    /* Build the low-1MB page table.
+     *   PTEs 0..255 cover virtual 0..0xFFFFF.
+     *   PTEs 256..1023 cover virtual 0x100000..0x3FFFFF and must match
+     *   the kernel identity-mapping so the kernel code/data stays reachable
+     *   while CR3 = this PD. */
+    for (i = 0; i < 256; i++) {
+        uint32_t phys;
+        if (i >= 160) {
+            /* 0xA0000..0xFFFFF — VGA + BIOS, shared identity */
+            phys = i * PAGE_SIZE;
+        } else if (i == 0) {
+            /* 0..0xFFF — IVT/BDA, shared identity */
+            phys = 0;
+        } else {
+            /* 0x1000..0x9FFFF — per-task private */
+            phys = vt->mem_pages[i];
+        }
+        pt[i] = phys | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+    }
+    {
+        const uint32_t *kpt0 = vmm_kernel_pt0();
+        for (i = 256; i < 1024; i++)
+            pt[i] = kpt0[i];
+    }
+
+    /* Build the page directory. Entry 0 → our low-1MB PT. Entries 1..1023
+     * cloned from kernel PD verbatim so DPMI's dynamic mappings in the high
+     * range stay visible. Page tables are shared physical pages, so PTE-level
+     * changes through the kernel PD are automatically reflected here too.
+     * Future kernel PDE creations are mirrored via v86_propagate_pde. */
+    pd[0] = vt->pt_low_phys | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+    {
+        const uint32_t *kpd = (const uint32_t *)vmm_kernel_pd_phys();
+        for (i = 1; i < 1024; i++)
+            pd[i] = kpd[i];
+    }
+    return 0;
+
+fail:
+    for (i = 0; i < 160; i++) {
+        if (vt->mem_pages[i] && vt->mem_pages[i] != 0)
+            pmm_free_page(vt->mem_pages[i]);
+        vt->mem_pages[i] = 0;
+    }
+    if (vt->pt_low_phys) { pmm_free_page(vt->pt_low_phys); vt->pt_low_phys = 0; }
+    if (vt->pd_phys)     { pmm_free_page(vt->pd_phys);     vt->pd_phys     = 0; }
+    return -1;
+}
+
+static void v86_free_paging(struct v86_task *vt) {
+    uint32_t i;
+    for (i = 1; i < 160; i++) {
+        if (vt->mem_pages[i]) {
+            pmm_free_page(vt->mem_pages[i]);
+            vt->mem_pages[i] = 0;
+        }
+    }
+    if (vt->pt_low_phys) { pmm_free_page(vt->pt_low_phys); vt->pt_low_phys = 0; }
+    if (vt->pd_phys)     { pmm_free_page(vt->pd_phys);     vt->pd_phys     = 0; }
+}
+
+uint32_t v86_task_cr3(int task_id) {
+    if (task_id < 0 || task_id >= V86_MAX_TASKS) return 0;
+    if (!v86_tasks[task_id].active) return 0;
+    return v86_tasks[task_id].pd_phys;
+}
+
+int v86_arm_v86mt_sandbox(int task_id) {
+    struct v86_task *vt;
+    uint32_t *pt;
+    uint32_t page;
+    uint32_t i;
+
+    if (task_id < 0 || task_id >= V86_MAX_TASKS) return -1;
+    if (!v86_tasks[task_id].active) return -1;
+    vt = &v86_tasks[task_id];
+    if (vt->vga_text_phys) return 0;   /* already armed */
+    if (!vt->pt_low_phys)  return -1;   /* paging not set up */
+
+    page = pmm_alloc_page();
+    if (!page) return -1;
+    /* Zero so the V86 task sees a clean 80×25 buffer before EDIT starts. */
+    {
+        uint32_t *zp = (uint32_t *)page;
+        for (i = 0; i < PAGE_SIZE / 4; i++) zp[i] = 0;
+    }
+    vt->vga_text_phys = page;
+
+    /* Replace PTE 0xB8 in the per-task low-1MB PT — virtual 0xB8000..0xB8FFF
+     * now maps to our private page instead of shared physical VGA. The other
+     * VGA pages (0xA0, 0xB0, 0xB9..0xBF) stay identity-mapped; only the
+     * text-mode framebuffer is sandboxed. Invalidate TLB so the change
+     * takes effect on the next access. */
+    pt = (uint32_t *)vt->pt_low_phys;
+    pt[0xB8] = page | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+    __asm__ volatile ("invlpg (%0)" : : "r"(0xB8000) : "memory");
+    return 0;
+}
+
+uint32_t v86_v86mt_sandbox_phys(int task_id) {
+    if (task_id < 0 || task_id >= V86_MAX_TASKS) return 0;
+    if (!v86_tasks[task_id].active) return 0;
+    return v86_tasks[task_id].vga_text_phys;
+}
+
+int v86_task_for_v86mt(int client_id, uint16_t handle) {
+    int i;
+    for (i = 0; i < V86_MAX_TASKS; i++) {
+        if (!v86_tasks[i].active) continue;
+        if (v86_tasks[i].v86mt_client_id == client_id &&
+            v86_tasks[i].v86mt_vt_handle == (int)handle)
+            return i;
+    }
+    return -1;
+}
+
+void v86_sync_v86mt_sandbox(int task_id, uint8_t *char_buf, uint8_t *attr_buf,
+                            uint32_t cells) {
+    struct v86_task *vt;
+    const uint8_t *src;
+    uint32_t i;
+
+    if (task_id < 0 || task_id >= V86_MAX_TASKS) return;
+    if (!v86_tasks[task_id].active) return;
+    vt = &v86_tasks[task_id];
+    if (!vt->vga_text_phys || !char_buf || !attr_buf) return;
+
+    /* VGA layout = char[0], attr[0], char[1], attr[1], ... */
+    src = (const uint8_t *)vt->vga_text_phys;
+    if (cells > 80 * 25) cells = 80 * 25;
+    for (i = 0; i < cells; i++) {
+        char_buf[i] = src[i * 2 + 0];
+        attr_buf[i] = src[i * 2 + 1];
+    }
+}
+
+void v86_propagate_pde(uint32_t dir_idx, uint32_t pde) {
+    int i;
+    /* Only propagate kernel-space entries — entries 0..7 are either the
+     * task's private low-1MB PT (entry 0) or static identity-mapped
+     * kernel ranges (entries 1..7) which were cloned at v86_alloc_paging
+     * time and never change. */
+    if (dir_idx < 8 || dir_idx >= 1024) return;
+    for (i = 0; i < V86_MAX_TASKS; i++) {
+        if (!v86_tasks[i].active) continue;
+        if (!v86_tasks[i].pd_phys) continue;
+        ((uint32_t *)v86_tasks[i].pd_phys)[dir_idx] = pde;
+    }
+}
+
 int v86_create_task(void) {
     int i;
     uint32_t stack_page;
 
+    /* With per-task page tables (v86_alloc_paging) each V86 task gets its
+     * own private 0..0xFFFFF address space, so the old "arenas collide
+     * with VGA" cap of 2 is no longer needed. Allow up to V86_MAX_TASKS. */
     for (i = 0; i < V86_MAX_TASKS; i++) {
         if (!v86_tasks[i].active) {
             int dos_tid;
@@ -2314,6 +2588,16 @@ int v86_create_task(void) {
             v86_tasks[i].cursor_y = 0;
             v86_tasks[i].v86mt_client_id = -1;
             v86_tasks[i].v86mt_vt_handle = 0;
+            v86_tasks[i].mcb_root        = 0;  /* stamped by v86_task_entry post-exe_load */
+            v86_tasks[i].vga_text_phys   = 0;  /* armed by v86_arm_v86mt_sandbox */
+
+            /* Per-task page directory giving this task its own private
+             * conventional memory (1MB virtual, 636 KB private). */
+            if (v86_alloc_paging(&v86_tasks[i]) < 0) {
+                pmm_free_page(stack_page);
+                serial_puts("V86: paging alloc failed\n");
+                return -1;
+            }
 
             /* Create corresponding DOS task */
             dos_tid = dos_create_task();
@@ -2383,6 +2667,13 @@ void v86_destroy_task(int task_id) {
 
     if (v86_tasks[task_id].ring0_stack)
         pmm_free_page(v86_tasks[task_id].ring0_stack - PAGE_SIZE);
+
+    if (v86_tasks[task_id].vga_text_phys) {
+        pmm_free_page(v86_tasks[task_id].vga_text_phys);
+        v86_tasks[task_id].vga_text_phys = 0;
+    }
+
+    v86_free_paging(&v86_tasks[task_id]);
 
     v86_tasks[task_id].active = 0;
 

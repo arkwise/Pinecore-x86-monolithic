@@ -38,6 +38,17 @@ extern struct kexport __kexport_end[];
 static int                       kexport_count = 0;
 static struct loaded_module     *modules_head  = 0;
 
+/* Sticky flag set by module_load_image when it fails *after* the module
+ * was successfully loaded into memory and module_init returned non-zero —
+ * as opposed to an earlier failure like unresolved symbols. The autoload
+ * loop reads this via module_last_load_was_init_failure() to decide
+ * whether to retry the module on subsequent passes. */
+static int g_last_load_init_failed = 0;
+
+int module_last_load_was_init_failure(void) {
+    return g_last_load_init_failed;
+}
+
 /* ------------------------------------------------------------------
  * Diagnostic helpers
  * ------------------------------------------------------------------ */
@@ -131,6 +142,7 @@ static int license_is_gpl(const char *s) {
  * ------------------------------------------------------------------ */
 struct loaded_module *module_load_image(const char *display_name,
                                         const void *buf, uint32_t size) {
+    g_last_load_init_failed = 0;
     if (size < sizeof(struct elf32_ehdr)) { mod_fail("buffer too small"); return 0; }
 
     const struct elf32_ehdr *eh = (const struct elf32_ehdr *)buf;
@@ -311,6 +323,23 @@ struct loaded_module *module_load_image(const char *display_name,
     lm->kexports       = mod_kexports;
     lm->kexport_count  = mod_kexport_count;
 
+    /* s54 Tier-1: fold-hash the source buffer for supply-chain evidence.
+     * Not a cryptographic hash — purpose is to detect "the .kmd on disk
+     * was swapped since last boot." Cheap (one pass over the bytes) and
+     * deterministic. The 32-bit fold mixes every byte and is enough to
+     * catch accidental substitution; against a targeted attacker who
+     * controls the .kmd it's only useful when compared against a known
+     * baseline captured in a previous boot log. A future hardened mode
+     * will add real SHA + allow-list-by-hash. */
+    uint32_t fold = 0x811C9DC5u;   /* FNV-1a seed */
+    {
+        const uint8_t *b = (const uint8_t *)buf;
+        for (uint32_t i = 0; i < size; i++) {
+            fold ^= b[i];
+            fold *= 0x01000193u;
+        }
+    }
+
     serial_puts("MODULE: loaded ");
     serial_puts(lm->name);
     serial_puts(" (");
@@ -319,6 +348,8 @@ struct loaded_module *module_load_image(const char *display_name,
     serial_puthex((uint32_t)image);
     serial_puts(" size=");
     serial_puthex(image_size);
+    serial_puts(" fnv=");
+    serial_puthex(fold);
     if (mod_kexport_count) {
         serial_puts(" exports=");
         serial_puthex(mod_kexport_count);
@@ -332,7 +363,9 @@ struct loaded_module *module_load_image(const char *display_name,
         serial_puthex((uint32_t)lm->init_returned);
         serial_puts(" — unloading\n");
         if (exit_fn) exit_fn();
-        kfree(image); kfree(lm); return 0;
+        kfree(image); kfree(lm);
+        g_last_load_init_failed = 1;
+        return 0;
     }
 
     /* Link into list (head insertion). */

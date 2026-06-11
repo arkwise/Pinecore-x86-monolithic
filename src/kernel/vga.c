@@ -130,15 +130,20 @@ static void vga_update_cursor(void) {
 static void vga_scroll(void) {
     int i;
 
-    /* Move rows 1-24 up to 0-23 */
-    for (i = 0; i < VGA_COLS * (VGA_ROWS - 1); i++)
+    /* Reserve row 24 for the klog status line (project_klog_status_line +
+     * s53.diag SESSION-STATE: "if vga.c's vga_scroll ever excludes a row
+     * to make this permanent, it has to be row 24"). Scroll rows 0..23,
+     * leave row 24 untouched so klog_stage() content persists across
+     * any amount of normal printing — critical on hardware without
+     * serial (Vortex86) where row 24 is the only diagnostic. */
+    for (i = 0; i < VGA_COLS * (VGA_ROWS - 2); i++)
         buffer[i] = buffer[i + VGA_COLS];
 
-    /* Clear last row */
-    for (i = VGA_COLS * (VGA_ROWS - 1); i < VGA_COLS * VGA_ROWS; i++)
+    /* Clear the new last writable row (row 23). */
+    for (i = VGA_COLS * (VGA_ROWS - 2); i < VGA_COLS * (VGA_ROWS - 1); i++)
         buffer[i] = vga_entry(' ', color);
 
-    cursor_y = VGA_ROWS - 1;
+    cursor_y = VGA_ROWS - 2;
 }
 
 void vga_init(void) {
@@ -178,7 +183,10 @@ void vga_putc(char c) {
         cursor_x = 0;
         cursor_y++;
     }
-    if (cursor_y >= VGA_ROWS)
+    /* Trigger one row earlier so cursor never lands on the reserved
+     * klog row (24). The character that overflowed lands in the now-
+     * cleared row 23. */
+    if (cursor_y >= VGA_ROWS - 1)
         vga_scroll();
 
     vga_update_cursor();

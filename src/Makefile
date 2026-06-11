@@ -2,7 +2,8 @@ CC = i686-elf-gcc
 AS = nasm
 LD = i686-elf-ld
 
-CFLAGS_COMMON = -march=i386 -ffreestanding -nostdlib -O2 -g -Wall -Wextra -Iinclude
+CFLAGS_COMMON = -march=i386 -ffreestanding -nostdlib -O2 -g -Wall -Wextra -Iinclude \
+                -fstack-protector-strong -mstack-protector-guard=global
 ASFLAGS = -f elf32
 
 # Source files (shared between both kernel modes)
@@ -16,6 +17,7 @@ C_SRC   = kernel/main.c kernel/idt.c kernel/pic.c kernel/pit.c \
           kernel/config.c kernel/setup.c kernel/build_info.c kernel/v86_kbd.c \
           kernel/panic.c kernel/pci.c kernel/module.c kernel/kexports.c kernel/klog.c \
           kernel/net.c kernel/dma.c kernel/irq.c kernel/int13.c kernel/port_io.c \
+          kernel/stack_chk.c \
           libc/string.c
 
 # Object files — separate build dirs for each mode
@@ -180,7 +182,9 @@ MODULE_SRCS = $(MODULES_DIR)/hello.c \
               $(MODULES_DIR)/loopback.c \
               $(MODULES_DIR)/usbcore.c \
               $(MODULES_DIR)/uhci.c \
-              $(MODULES_DIR)/hid.c
+              $(MODULES_DIR)/ohci.c \
+              $(MODULES_DIR)/hid.c \
+              $(MODULES_DIR)/iwi.c
 MODULE_BINS = $(MODULE_SRCS:%.c=%.kmd)
 MODULE_CFLAGS = -march=i386 -ffreestanding -nostdlib -fno-common -fno-builtin \
                 -fno-pic -m32 -Os -Wall -Wextra -Iinclude
@@ -196,11 +200,13 @@ modules: $(MODULE_BINS)
 # Builds MBR + VBR + PCBOOT.SYS, then a pure USB image with no
 # FreeDOS in the chain. Target hardware: Vortex86SX + any PC.
 # ================================================================
-PCBOOT_DIR = boot/pcboot
-MBR_BIN    = $(PCBOOT_DIR)/mbr.bin
-VBR_BIN    = $(PCBOOT_DIR)/vbr.bin
-PCBOOT_BIN = $(PCBOOT_DIR)/pcboot.bin
-PURE_USB   = pinecore-pure-usb.img
+PCBOOT_DIR    = boot/pcboot
+MBR_BIN       = $(PCBOOT_DIR)/mbr.bin
+VBR_BIN       = $(PCBOOT_DIR)/vbr.bin
+VBR_FLOPPY_BIN= $(PCBOOT_DIR)/vbr_floppy.bin
+PCBOOT_BIN    = $(PCBOOT_DIR)/pcboot.bin
+PURE_USB      = pinecore-pure-usb.img
+PURE_FLOPPY   = pinecore-pure-floppy.img
 
 $(MBR_BIN): $(PCBOOT_DIR)/mbr.asm
 	nasm -f bin -o $@ $<
@@ -208,11 +214,14 @@ $(MBR_BIN): $(PCBOOT_DIR)/mbr.asm
 $(VBR_BIN): $(PCBOOT_DIR)/vbr.asm
 	nasm -f bin -o $@ $<
 
+$(VBR_FLOPPY_BIN): $(PCBOOT_DIR)/vbr_floppy.asm
+	nasm -f bin -o $@ $<
+
 $(PCBOOT_BIN): $(PCBOOT_DIR)/pcboot.asm
 	nasm -f bin -o $@ $<
 
-pcboot-bins: $(MBR_BIN) $(VBR_BIN) $(PCBOOT_BIN)
-	@echo "Boot binaries built: $(MBR_BIN), $(VBR_BIN), $(PCBOOT_BIN)"
+pcboot-bins: $(MBR_BIN) $(VBR_BIN) $(VBR_FLOPPY_BIN) $(PCBOOT_BIN)
+	@echo "Boot binaries built: $(MBR_BIN), $(VBR_BIN), $(VBR_FLOPPY_BIN), $(PCBOOT_BIN)"
 
 # Image builder: lays MBR/VBR/PCBOOT.SYS + KERNEL.BIN onto a 64 MB raw image,
 # then mirrors all apps (DOOM, EDIT, DESKTOP, COMMAND.COM, etc.) from the

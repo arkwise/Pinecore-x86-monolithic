@@ -27,4 +27,11 @@ void kernel_panic(const char *reason, void *isr_frame_ptr);
  * kernel-internal assertions where there's no exception frame. */
 void kernel_panic_str(const char *reason);
 
+/* Boot-watchdog panic — BSOD with "kernel stalled" reason and the
+ * last klog_stage() label printed prominently. Used by klog's RTC
+ * watchdog when no forward progress is observed for the configured
+ * timeout. Row 24 (the live klog status line) is preserved by the
+ * panic painter so the stage tag remains readable on the screen too. */
+void kernel_panic_watchdog(const char *last_stage);
+
 #endif

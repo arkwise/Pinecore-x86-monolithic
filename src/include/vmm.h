@@ -24,4 +24,18 @@ void vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags);
 void vmm_unmap_page(uint32_t virt);
 uint32_t vmm_get_physical(uint32_t virt);
 
+/* Physical address of the kernel page directory. CR3 value for kernel-only
+ * tasks. V86 tasks set up their own PD whose entries 1..7 are cloned from
+ * here at create time so the 1..32 MB identity-mapping stays valid. */
+uint32_t vmm_kernel_pd_phys(void);
+
+/* Snapshot of kernel_page_tables[0] for use as a template when V86 tasks
+ * build their per-task low-1MB page table. PTEs 256..1023 (covering virtual
+ * 0x100000..0x3FFFFF) are copied verbatim so the kernel stays reachable. */
+const uint32_t *vmm_kernel_pt0(void);
+
+/* Activate a CR3 value (physical page-directory address). Used by the
+ * scheduler at context-switch time to swap to a V86 task's private PD. */
+void vmm_load_cr3(uint32_t pd_phys);
+
 #endif

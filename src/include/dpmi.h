@@ -178,12 +178,21 @@ struct dpmi_client {
          * until they are populated by vt_alloc. */
         uint16_t  char_sel;
         uint16_t  attr_sel;
+        /* Phase 4.7 M6 — keyboard ring + RW selector mapping it into the
+         * client. Layout per docs/design/V86MT-API.md "Ring buffer format":
+         * 16-byte header (head, tail, size, flags + 8 reserved) + N entries
+         * of 2 bytes each (scancode<<8 | ascii). Client = producer (bumps
+         * head), host's INT 16h emulator = consumer (bumps tail). */
+        uint8_t  *kbd_buf;
+        uint16_t  kbd_sel;
         /* Task lifecycle mirror — populated by vt_spawn / v86_destroy_task
          * for vt_poll reporting. */
         uint16_t  task_running;
         uint16_t  exited;
         uint16_t  exit_code;
     } v86mt_vts[DPMI_V86MT_MAX_VTS];
+#define DPMI_V86MT_KBD_ENTRIES  32
+#define DPMI_V86MT_KBD_BYTES    (16 + DPMI_V86MT_KBD_ENTRIES * 2)
 
     /* PM INT 21h chain endpoint — LDT code segment containing INT 21h; RETF.
      * Seeded into pm_vectors[0x21] before client installs its handler so that
@@ -388,5 +397,12 @@ extern volatile int dpmi_timer_ready;
  * AH=02/09 when the current V86 task is V86MT-owned. */
 struct dpmi_v86mt_vt *v86mt_vt_get(int client_id, uint16_t handle);
 void v86mt_vt_putc(struct dpmi_v86mt_vt *v, uint8_t ch, uint8_t attr);
+
+/* V86MT kbd-ring helpers (Phase 4.7 M6) — v86.c INT 16h emulator calls these
+ * when the current V86 task is V86MT-owned. peek = non-destructive read
+ * (returns 1 if a key is available and writes it to *out); pop = same as
+ * peek but advances the tail. Returns 0 if ring is empty. */
+int v86mt_kbd_peek(struct dpmi_v86mt_vt *v, uint16_t *out);
+int v86mt_kbd_pop (struct dpmi_v86mt_vt *v, uint16_t *out);
 
 #endif

@@ -51,7 +51,18 @@ struct exe_info {
 };
 
 /* Load an EXE file from FAT into V86 memory.
+ *
+ * `env_seg` is the bottom of the V86 task's memory arena (paragraphs).
+ * Layout produced: env block at env_seg, PSP at env_seg+0x100, image at
+ * env_seg+0x110. `arena_paras` is the size of the arena including env
+ * and PSP, in paragraphs (16-byte units). The MCB program block is
+ * sized so the program owns the arena from PSP through arena top.
+ *
+ * Slot 0 = (0x1000, 0x3000): the original FreeCom layout.
+ * Slot 1 = (0x4000, 0x3000), slot 2 = (0x7000, 0x3000) etc.
+ *
  * Returns 0 on success, -1 on failure. */
-int exe_load(const char *filename, const char *cmdline, struct exe_info *info);
+int exe_load(const char *filename, const char *cmdline, struct exe_info *info,
+             uint16_t env_seg, uint16_t arena_paras);
 
 #endif

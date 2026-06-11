@@ -49,7 +49,7 @@ void pit_tick(void) {
         v86_kbd_poll();
     }
 
-    /*  — periodic callbacks (doc 54 §5). uhci.kmd registers a
+    /* s53.a — periodic callbacks (doc 54 §5). uhci.kmd registers a
      * 100 ms hot-plug poll here. Bounded loop, no heap. */
     for (i = 0; i < PIT_PERIODIC_MAX; i++) {
         struct pit_periodic *p = &pit_periodics[i];

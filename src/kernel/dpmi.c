@@ -39,7 +39,7 @@ volatile int dpmi_busy = 0;
  * because early timer delivery during init causes re-entrancy crashes. */
 volatile int dpmi_timer_ready = 0;
 
-/* diagnostic: circular log of last N PM INT 21h deliveries.
+/* Ses31 diagnostic: circular log of last N PM INT 21h deliveries.
  * Records the (eip, cs, eflags) tuple pushed onto the client's user
  * stack at delivery time, so when a subsequent #GP fires on a null-CS
  * IRETD we can identify whether the garbage IRETD frame was authored
@@ -59,11 +59,11 @@ struct pm_int21_push_rec {
 static struct pm_int21_push_rec pm_int21_log[PM_INT21_LOG_N];
 static uint32_t pm_int21_log_count = 0;  /* total deliveries; slot = count & (N-1) */
 
-/* H9 diagnostic: same shape as the INT 21h log above, but for
+/* Ses32 H9 diagnostic: same shape as the INT 21h log above, but for
  * the two other PM-stack 3-dword same-DPL push paths in dpmi.c —
  * exception delivery (~dpmi.c:2056-2080, fEIP/fCS/fEFL triple inside
  * the 8-dword exception frame) and generic PM INT/IRQ delivery
- * (~dpmi.c:2784-2794, 3-dword IRET frame). falsified
+ * (~dpmi.c:2784-2794, 3-dword IRET frame). Session 32 falsified
  * H6-narrow; the (0,0,0x13046) garbage at 0x11F:0x6528 still matches
  * a same-DPL push authored by one of these paths with a zeroed
  * source frame. If either log shows (pushEIP=0, pushCS=0) H9 is
@@ -269,7 +269,7 @@ static void dpmi_free_client_resources(struct dpmi_client *c) {
     for (j = 0; j < DPMI_MAX_RMCB; j++)
         c->rmcb[j].active = 0;
 
-    /* V86MT shadow buffers (Phase 4.7 M3) + LDT selectors (M5). */
+    /* V86MT shadow buffers (M3) + LDT selectors (M5) + kbd ring (M6). */
     for (j = 0; j < DPMI_V86MT_MAX_VTS; j++) {
         if (c->v86mt_vts[j].char_sel) {
             ldt_free(c, SEL_TO_IDX(c->v86mt_vts[j].char_sel));
@@ -279,6 +279,10 @@ static void dpmi_free_client_resources(struct dpmi_client *c) {
             ldt_free(c, SEL_TO_IDX(c->v86mt_vts[j].attr_sel));
             c->v86mt_vts[j].attr_sel = 0;
         }
+        if (c->v86mt_vts[j].kbd_sel) {
+            ldt_free(c, SEL_TO_IDX(c->v86mt_vts[j].kbd_sel));
+            c->v86mt_vts[j].kbd_sel = 0;
+        }
         if (c->v86mt_vts[j].char_buf) {
             kfree(c->v86mt_vts[j].char_buf);
             c->v86mt_vts[j].char_buf = 0;
@@ -286,6 +290,10 @@ static void dpmi_free_client_resources(struct dpmi_client *c) {
         if (c->v86mt_vts[j].attr_buf) {
             kfree(c->v86mt_vts[j].attr_buf);
             c->v86mt_vts[j].attr_buf = 0;
+        }
+        if (c->v86mt_vts[j].kbd_buf) {
+            kfree(c->v86mt_vts[j].kbd_buf);
+            c->v86mt_vts[j].kbd_buf = 0;
         }
         c->v86mt_vts[j].used = 0;
     }
@@ -500,9 +508,32 @@ static int memblock_alloc(struct dpmi_client *c, uint32_t size,
 
     /* Linear address space exhaustion → spec error 8012h territory. */
     if (base < DPMI_VADDR_START ||
-        base >= DPMI_VADDR_END ||
-        size > (DPMI_VADDR_END - base)) {
+        base >= DPMI_VADDR_END) {
         return -1;
+    }
+
+    /* s57: silently cap requests that exceed the remaining linear window.
+     *
+     * Surfaced in s56: DESKTOP build s55→s56 grew 37 bytes → s38-family
+     * layout shift moves the V2 stub's grow_memory accumulator past
+     * 0xF000_0000 → INT 31h 0x0501 fires with BX:CX = 0xFF42:0000 (4.2 GB).
+     * The s47 + s49 fixes addressed the same family in earlier builds by
+     * pinning stubinfo deterministically and bumping DPMI_VADDR_END to
+     * 0xF000_0000, both still in effect — but a 4.2 GB single-call ask
+     * doesn't fit in any 32-bit linear window at any base in [VADDR_START,
+     * 4 GB). Capping silently is safe because the reserve-vs-commit memory
+     * model means the client only physically uses what it touches; the
+     * 24 MB commit cap is the real budget. The V2 stub uses the returned
+     * base to stamp _stubinfo and rep-movsds the stamped struct into the
+     * head of the allocation; it never reads back the size. */
+    if (size > (DPMI_VADDR_END - base)) {
+        uint32_t capped = DPMI_VADDR_END - base;
+        serial_puts("DPMI: 0501 cap ");
+        serial_puthex(size);
+        serial_puts(" → ");
+        serial_puthex(capped);
+        serial_puts("\n");
+        size = capped;
     }
 
     c->memblocks[i].active = 1;
@@ -663,8 +694,10 @@ int dpmi_enter_pm(int v86_task_id, int is_32bit) {
         c->v86mt_vts[i].ticks_consumed = 0;
         c->v86mt_vts[i].char_buf       = 0;
         c->v86mt_vts[i].attr_buf       = 0;
+        c->v86mt_vts[i].kbd_buf        = 0;
         c->v86mt_vts[i].char_sel       = 0;
         c->v86mt_vts[i].attr_sel       = 0;
+        c->v86mt_vts[i].kbd_sel        = 0;
         c->v86mt_vts[i].task_running   = 0;
         c->v86mt_vts[i].exited         = 0;
         c->v86mt_vts[i].exit_code      = 0;
@@ -939,7 +972,7 @@ int dpmi_transition_to_pm(int client_id, struct v86_frame *frame) {
         serial_puthex(frame->v86_es);
         serial_puts(")\n");
 
-        /* — env block descriptor.
+        /* Ses36 — env block descriptor.
          *
          * DJGPP's _setup_environment reads PSP[+0x2C] expecting a PM
          * selector aliasing the env block. Under DOS, PSP[+0x2C] holds
@@ -1182,21 +1215,39 @@ struct dpmi_v86mt_vt *v86mt_vt_get(int client_id, uint16_t handle) {
 }
 
 __attribute__((unused))
+/* Mirror a single VGA-text cell into the v86 task's sandbox page so the
+ * INT 21h write survives the next sandbox→buf sync inside v86mt_poll. We
+ * run in PM Ring 0 with the v86 task's CR3 active, so virtual 0xB8000
+ * resolves to the sandbox automatically. */
+static inline void v86mt_mirror_cell(uint32_t cell, uint8_t ch, uint8_t attr) {
+    volatile uint8_t *vga = (volatile uint8_t *)0xB8000;
+    vga[cell * 2 + 0] = ch;
+    vga[cell * 2 + 1] = attr;
+}
+
 static void v86mt_vt_scroll_up(struct dpmi_v86mt_vt *v) {
     uint32_t row = v->cols;
+    uint32_t cells, i;
     for (uint8_t r = 0; r < v->rows - 1; r++) {
         memcpy(v->char_buf + r * row, v->char_buf + (r + 1) * row, row);
         memcpy(v->attr_buf + r * row, v->attr_buf + (r + 1) * row, row);
     }
     memset(v->char_buf + (v->rows - 1) * row, 0x20, row);
     memset(v->attr_buf + (v->rows - 1) * row, 0x07, row);
+    /* Mirror the entire surface into the sandbox so direct-VGA writers
+     * (EDIT) see the same scrolled contents on their next read. */
+    cells = (uint32_t)v->cols * v->rows;
+    for (i = 0; i < cells; i++)
+        v86mt_mirror_cell(i, v->char_buf[i], v->attr_buf[i]);
 }
 
 static void v86mt_vt_clear(struct dpmi_v86mt_vt *v) {
+    uint32_t n, i;
     if (!v || !v->char_buf || !v->attr_buf) return;
-    uint32_t n = (uint32_t)v->cols * v->rows;
+    n = (uint32_t)v->cols * v->rows;
     memset(v->char_buf, 0x20, n);
     memset(v->attr_buf, 0x07, n);
+    for (i = 0; i < n; i++) v86mt_mirror_cell(i, 0x20, 0x07);
     v->cursor_x = 0;
     v->cursor_y = 0;
     v->screen_dirty++;
@@ -1215,6 +1266,7 @@ void v86mt_vt_putc(struct dpmi_v86mt_vt *v, uint8_t ch, uint8_t attr) {
         uint32_t i = v->cursor_y * v->cols + v->cursor_x;
         v->char_buf[i] = 0x20;
         v->attr_buf[i] = attr;
+        v86mt_mirror_cell(i, 0x20, attr);
         v->screen_dirty++;
         return;
     }
@@ -1225,6 +1277,7 @@ void v86mt_vt_putc(struct dpmi_v86mt_vt *v, uint8_t ch, uint8_t attr) {
             uint32_t i = v->cursor_y * v->cols + v->cursor_x;
             v->char_buf[i] = 0x20;
             v->attr_buf[i] = attr;
+            v86mt_mirror_cell(i, 0x20, attr);
             v->cursor_x++;
         }
         goto wrap;
@@ -1233,6 +1286,7 @@ void v86mt_vt_putc(struct dpmi_v86mt_vt *v, uint8_t ch, uint8_t attr) {
         uint32_t i = v->cursor_y * v->cols + v->cursor_x;
         v->char_buf[i] = ch;
         v->attr_buf[i] = attr;
+        v86mt_mirror_cell(i, ch, attr);
         v->cursor_x++;
     }
 wrap:
@@ -1244,18 +1298,33 @@ wrap:
     v->screen_dirty++;
 }
 
-/* V86MT M4 — synthetic V86 task entry. The 0x0A02 dispatcher
- * pre-writes the program bytes at linear 0x11100 (CS=0x1100, IP=0x100)
- * before creating the task; this entry runs in the scheduler context
- * and immediately enters V86 mode at that address. v86_start_exe never
- * returns; exit goes through the GPF handler → sched_v86_exit. */
-static void v86mt_synth_task_entry(void) {
-    struct task *self = sched_get_task(sched_current());
-    int v86_id = self->v86_task_id;
-    serial_puts("V86MT: synth task starting v86_id=");
-    serial_puthex(v86_id);
-    serial_puts(" CS:IP=0x1100:0x100\n");
-    v86_start_exe(v86_id, 0x1100, 0x100, 0x1100, 0xFFFE, 0x1100);
+/* V86MT M6 — keyboard ring drain. The ring is a 16-byte header plus
+ * size × 2-byte entries. Header layout (matches V86MT-API.md):
+ *   +0  head     producer cursor (client writes)
+ *   +2  tail     consumer cursor (host writes)
+ *   +4  size     entries
+ *   +6  flags    bit0=shift, bit1=ctrl, bit2=alt (modifier mirror)
+ *   +8..+15      reserved
+ *   +16          entries[0..size-1], each (scancode<<8 | ascii)
+ * Empty ⇔ head == tail. peek leaves tail alone; pop advances it. */
+int v86mt_kbd_peek(struct dpmi_v86mt_vt *v, uint16_t *out) {
+    if (!v || !v->kbd_buf) return 0;
+    uint16_t head = *(volatile uint16_t *)(v->kbd_buf + 0);
+    uint16_t tail = *(volatile uint16_t *)(v->kbd_buf + 2);
+    uint16_t size = *(volatile uint16_t *)(v->kbd_buf + 4);
+    if (head == tail || !size) return 0;
+    if (out)
+        *out = *(uint16_t *)(v->kbd_buf + 16 + tail * 2);
+    return 1;
+}
+
+int v86mt_kbd_pop(struct dpmi_v86mt_vt *v, uint16_t *out) {
+    if (!v86mt_kbd_peek(v, out)) return 0;
+    uint16_t tail = *(volatile uint16_t *)(v->kbd_buf + 2);
+    uint16_t size = *(volatile uint16_t *)(v->kbd_buf + 4);
+    tail = (tail + 1) % size;
+    *(volatile uint16_t *)(v->kbd_buf + 2) = tail;
+    return 1;
 }
 
 /* ================================================================
@@ -1511,7 +1580,7 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
     case 0x0100: {
         /* Allocate DOS memory: BX=paragraphs → AX=RM segment, DX=selector.
          *
-         * : previously handed out fake segments at `0x3000 + idx*0x100`
+         * Ses35: previously handed out fake segments at `0x3000 + idx*0x100`
          * without reserving the linear range, which collided with V86 task
          * memory and let the DJGPP stub's `mov [stubinfo+0x26], es` write
          * land in a region later clobbered. Now route through the V86 task's
@@ -2124,7 +2193,7 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
          * If a client actually reads back attributes (rare — most just
          * call 0507 and assume success) we'd need to fill the array with
          * 0x0001 (committed) per page. Add that lazily if a real client
-         * needs it. (: discovered by Pinecone DESKTOP.EXE faulting
+         * needs it. (Ses34: discovered by Pinecone DESKTOP.EXE faulting
          * with CF=1/0x8001 from default case and writing to "uncommitted"
          * pages.) */
         return 0;
@@ -2422,35 +2491,62 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
             v->ticks_consumed = 0;
             v->char_buf       = cb;
             v->attr_buf       = ab;
+            v->kbd_buf        = 0;
+            v->kbd_sel        = 0;
             v->task_running   = 0;
             v->exited         = 0;
             v->exit_code      = 0;
             v86mt_vt_clear(v);
-            /* M5 — allocate LDT descriptors mapping char_buf + attr_buf
-             * into client-readable PM space. Identity-mapped low-RAM heap
-             * pages are PTE_USER, so ring 3 reads through the selector
-             * just work. Access byte 0xF0 = present, DPL=3, data, RO. */
-            int char_idx = ldt_alloc(c, 1);
-            int attr_idx = ldt_alloc(c, 1);
-            if (!char_idx || !attr_idx) {
-                if (char_idx) ldt_free(c, char_idx);
-                if (attr_idx) ldt_free(c, attr_idx);
+            /* M6 — keyboard ring. 16-byte header + 32 × 2-byte entries =
+             * 80 bytes, kmalloc-allocated so it lives in the identity-mapped
+             * low-RAM heap (PTE_USER), readable + writable through a DPL=3
+             * data selector. Header init: head=tail=0, size=N, flags=0. */
+            uint8_t *kb = (uint8_t *)kmalloc(DPMI_V86MT_KBD_BYTES);
+            if (!kb) {
                 kfree(cb); kfree(ab);
                 v->used = 0;
                 v->char_buf = 0;
                 v->attr_buf = 0;
+                serial_puts(" → CF=1 OOM(kbd)\n");
+                regs->eax = (regs->eax & 0xFFFF0000) | 0x0030;
+                return 1;
+            }
+            memset(kb, 0, DPMI_V86MT_KBD_BYTES);
+            *(uint16_t *)(kb + 4) = DPMI_V86MT_KBD_ENTRIES;  /* size */
+            v->kbd_buf = kb;
+            /* M5 — allocate LDT descriptors mapping char_buf + attr_buf
+             * into client-readable PM space. Identity-mapped low-RAM heap
+             * pages are PTE_USER, so ring 3 reads through the selector
+             * just work. Access byte 0xF0 = present, DPL=3, data, RO.
+             * M6 adds the kbd selector — RW (access 0xF2) so client can
+             * batch-write directly when it wants to bypass 0x0A03. */
+            int char_idx = ldt_alloc(c, 1);
+            int attr_idx = ldt_alloc(c, 1);
+            int kbd_idx  = ldt_alloc(c, 1);
+            if (!char_idx || !attr_idx || !kbd_idx) {
+                if (char_idx) ldt_free(c, char_idx);
+                if (attr_idx) ldt_free(c, attr_idx);
+                if (kbd_idx)  ldt_free(c, kbd_idx);
+                kfree(cb); kfree(ab); kfree(kb);
+                v->used = 0;
+                v->char_buf = 0;
+                v->attr_buf = 0;
+                v->kbd_buf  = 0;
                 serial_puts(" → CF=1 NO_LDT\n");
                 regs->eax = (regs->eax & 0xFFFF0000) | 0x0008;
                 return 1;
             }
             ldt_setup(c, char_idx, (uint32_t)cb, n - 1, 0xF0, 1);
             ldt_setup(c, attr_idx, (uint32_t)ab, n - 1, 0xF0, 1);
+            ldt_setup(c, kbd_idx,  (uint32_t)kb, DPMI_V86MT_KBD_BYTES - 1,
+                      0xF2, 1);
             v->char_sel = LDT_SEL(char_idx);
             v->attr_sel = LDT_SEL(attr_idx);
+            v->kbd_sel  = LDT_SEL(kbd_idx);
             regs->eax = (regs->eax & 0xFFFF0000) | (uint16_t)(h + 1);
             regs->ebx = (regs->ebx & 0xFFFF0000) | v->char_sel;
             regs->ecx = (regs->ecx & 0xFFFF0000) | v->attr_sel;
-            regs->edx &= 0xFFFF0000;  /* kbd_sel = 0 until M6 */
+            regs->edx = (regs->edx & 0xFFFF0000) | v->kbd_sel;
             serial_puts(" → handle=");
             serial_puthex(h + 1);
             serial_puts(" char_buf=");
@@ -2461,6 +2557,8 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
             serial_puthex(v->char_sel);
             serial_puts(" attr_sel=");
             serial_puthex(v->attr_sel);
+            serial_puts(" kbd_sel=");
+            serial_puthex(v->kbd_sel);
             serial_puts(" CF=0\n");
             return 0;
         }
@@ -2470,18 +2568,19 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
     }
 
     case 0x0A02: {
-        /* v86mt_vt_spawn — BX = handle, DS:ESI = argv packed (filename\0…\0\0),
+        /* v86mt_vt_spawn — BX = handle, DS:ESI = argv packed (filename\0arg…\0\0),
          * ES:EDI = env packed (or NULL = inherit).
          *
-         * M4 implementation: filename is *logged* but ignored. The kernel
-         * pre-writes a tiny 22-byte test program at linear 0x11100 that does
-         *   mov ah, 9 ; mov dx, 0x10C ; int 21h ; mov ax,0x4C00 ; int 21h
-         *   db 'M4: Hi!', 13, 10, '$'
-         * and creates a V86 task running at CS:IP = 0x1100:0x100. The task
-         * is tagged with the V86MT owner so the DOS shim routes its INT 21h
-         * AH=02/09 output into the V86MT shadow buffer (not the kernel VGA).
-         * Real file loading via com_load lands in M4.5 once M5 makes the
-         * result visible to the PM client. */
+         * Phase 4.7 M7 — real binary load. Parses filename + a single
+         * space-joined arg string from the DS:ESI argv block, then hands
+         * off to sched_create_v86_exec (same path the kernel uses to
+         * launch COMMAND.COM at boot under PURE mode). v86_task_entry
+         * runs in the new scheduler task's context, calls exe_load to
+         * read the MZ binary from FAT, then v86_start_exe to enter V86
+         * mode. We tag the V86 task with the V86MT owner immediately on
+         * return so the DOS shim routes its INT 21h output into the VT
+         * shadow buffer (and so v86_destroy_task mirrors lifecycle back
+         * into vt_state for the PM client's vt_poll). */
         uint16_t handle = regs->ebx & 0xFFFF;
         serial_puts("DPMI: V86MT vt_spawn handle=");
         serial_puthex(handle);
@@ -2491,33 +2590,43 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
             regs->eax = (regs->eax & 0xFFFF0000) | 0x0010;
             return 1;
         }
-        /* Log the filename from DS:ESI for traceability. */
+        char filename[64];
+        char args[128];
+        filename[0] = 0;
+        args[0]     = 0;
         {
             uint16_t ds_sel = regs->ds & 0xFFFF;
             int ds_idx = SEL_TO_IDX(ds_sel);
-            serial_puts(" filename=\"");
             if ((ds_sel & 4) && ds_idx < DPMI_LDT_ENTRIES && LDT_USED(c, ds_idx)) {
                 uint32_t base = desc_get_base(&c->ldt[ds_idx]);
-                const char *fn = (const char *)(base + (regs->esi & 0xFFFFFFFFu));
-                for (int i = 0; i < 32 && (uint8_t)fn[i] >= 0x20; i++)
-                    serial_putc(fn[i]);
+                const char *p = (const char *)(base + (regs->esi & 0xFFFFFFFFu));
+                int i = 0, j = 0;
+                while (i < (int)sizeof(filename) - 1 && p[i]) {
+                    filename[i] = p[i];
+                    i++;
+                }
+                filename[i] = 0;
+                /* Skip first NUL, gather space-joined args until 0x00 0x00. */
+                if (p[i] == 0) i++;
+                while (i < 1024 && j < (int)sizeof(args) - 1) {
+                    if (p[i] == 0 && p[i + 1] == 0) break;
+                    if (p[i] == 0) { args[j++] = ' '; i++; continue; }
+                    args[j++] = p[i++];
+                }
+                args[j] = 0;
             }
+            serial_puts(" filename=\"");
+            serial_puts(filename);
+            serial_puts("\" args=\"");
+            serial_puts(args);
             serial_puts("\"");
         }
-        /* Plant the M4 test program at linear 0x11100. */
-        static const uint8_t m4_prog[] = {
-            0xB4, 0x09,                   /* mov ah, 0x09         */
-            0xBA, 0x0C, 0x01,             /* mov dx, 0x010C       */
-            0xCD, 0x21,                   /* int 0x21             */
-            0xB8, 0x00, 0x4C,             /* mov ax, 0x4C00       */
-            0xCD, 0x21,                   /* int 0x21             */
-            'M','4',':',' ','H','i','!',  /* msg @ 0x010C         */
-            0x0D, 0x0A, '$',
-        };
-        memcpy((void *)0x11100, m4_prog, sizeof(m4_prog));
-        /* Create scheduler+V86 task with our synthetic entry. */
-        int task_id = sched_create_v86_task_with_entry("v86mt-vt",
-                          v86mt_synth_task_entry, -1);
+        if (!filename[0]) {
+            serial_puts(" → CF=1 BAD_ARGV\n");
+            regs->eax = (regs->eax & 0xFFFF0000) | 0x0013;
+            return 1;
+        }
+        int task_id = sched_create_v86_exec("v86mt-vt", -1, filename, args);
         if (task_id < 0) {
             serial_puts(" → CF=1 EXEC_FAILED (sched alloc)\n");
             regs->eax = (regs->eax & 0xFFFF0000) | 0x0012;
@@ -2525,7 +2634,13 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
         }
         int v86_id = sched_get_task(task_id)->v86_task_id;
         v86_set_v86mt_owner(v86_id, client_id, handle);
-        /* M5 lifecycle mirror — task is now scheduled. */
+        /* Arm the per-task 0xB8000 sandbox so TUI apps that write directly
+         * to VGA text memory (EDIT.EXE, the entire DFlat+ family) land in
+         * private RAM that v86mt_poll syncs into the client's char/attr
+         * buffers — instead of stomping the kernel VGA at physical 0xB8000. */
+        if (v86_arm_v86mt_sandbox(v86_id) < 0) {
+            serial_puts("DPMI: V86MT sandbox arm failed (no page)\n");
+        }
         c->v86mt_vts[handle - 1].task_running = 1;
         c->v86mt_vts[handle - 1].exited       = 0;
         c->v86mt_vts[handle - 1].exit_code    = 0;
@@ -2534,6 +2649,115 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
         serial_puts(" v86=");
         serial_puthex(v86_id);
         serial_puts("\n");
+        regs->eax &= 0xFFFF0000;
+        return 0;
+    }
+
+    case 0x0A03: {
+        /* v86mt_kbd_inject — BX = handle, CX = (scancode<<8 | ascii).
+         * Convenience wrapper around the shared kbd ring: enqueues one
+         * entry as if the client had written it through kbd_sel directly.
+         * Ring layout matches v86mt_kbd_peek/pop (16-byte header at
+         * kbd_buf, then size × 2-byte entries). Full-ring policy = drop
+         * + bump kbd_drops + return V86MT_E_RING_FULL (0x0020). */
+        uint16_t h = regs->ebx & 0xFFFF;
+        if (h < 1 || h > DPMI_V86MT_MAX_VTS || !c->v86mt_vts[h - 1].used) {
+            regs->eax = (regs->eax & 0xFFFF0000) | 0x0010;
+            return 1;
+        }
+        struct dpmi_v86mt_vt *v = &c->v86mt_vts[h - 1];
+        if (!v->kbd_buf) {
+            regs->eax = (regs->eax & 0xFFFF0000) | 0x0010;
+            return 1;
+        }
+        uint16_t head = *(volatile uint16_t *)(v->kbd_buf + 0);
+        uint16_t tail = *(volatile uint16_t *)(v->kbd_buf + 2);
+        uint16_t size = *(volatile uint16_t *)(v->kbd_buf + 4);
+        uint16_t next = (uint16_t)((head + 1) % size);
+        if (next == tail) {
+            v->kbd_drops++;
+            regs->eax = (regs->eax & 0xFFFF0000) | 0x0020;
+            return 1;
+        }
+        {
+            /* Synthesize a non-zero scancode when the caller only had
+             * ASCII (Allegro strips scancode in cmdbox_feed_char). Real
+             * BIOS keyboard entries are (scancode<<8 | ascii); apps treat
+             * scancode=0 as "no key" or "extended key" and ignore the
+             * ASCII byte. Map ASCII → PS/2 make-code for the printable
+             * range so EDIT et al. see "valid" entries. Falls back to 0x39
+             * (space) for anything not in the table — any non-zero value
+             * is enough for apps that just want the ASCII. */
+            uint16_t entry = (uint16_t)(regs->ecx & 0xFFFF);
+            uint8_t  sc    = (entry >> 8) & 0xFF;
+            uint8_t  ch    = entry & 0xFF;
+            if (sc == 0 && ch != 0) {
+                static const uint8_t ascii_to_sc[128] = {
+                    [0x08]=0x0E, [0x09]=0x0F, [0x0D]=0x1C, [0x1B]=0x01,
+                    [' ']=0x39, ['!']=0x02, ['"']=0x28, ['#']=0x04,
+                    ['$']=0x05, ['%']=0x06, ['&']=0x08, ['\'']=0x28,
+                    ['(']=0x0A, [')']=0x0B, ['*']=0x09, ['+']=0x0D,
+                    [',']=0x33, ['-']=0x0C, ['.']=0x34, ['/']=0x35,
+                    ['0']=0x0B, ['1']=0x02, ['2']=0x03, ['3']=0x04,
+                    ['4']=0x05, ['5']=0x06, ['6']=0x07, ['7']=0x08,
+                    ['8']=0x09, ['9']=0x0A,
+                    [':']=0x27, [';']=0x27, ['<']=0x33, ['=']=0x0D,
+                    ['>']=0x34, ['?']=0x35, ['@']=0x03, ['[']=0x1A,
+                    ['\\']=0x2B,[']']=0x1B, ['^']=0x07, ['_']=0x0C,
+                    ['`']=0x29, ['{']=0x1A, ['|']=0x2B, ['}']=0x1B,
+                    ['~']=0x29,
+                    ['A']=0x1E, ['B']=0x30, ['C']=0x2E, ['D']=0x20,
+                    ['E']=0x12, ['F']=0x21, ['G']=0x22, ['H']=0x23,
+                    ['I']=0x17, ['J']=0x24, ['K']=0x25, ['L']=0x26,
+                    ['M']=0x32, ['N']=0x31, ['O']=0x18, ['P']=0x19,
+                    ['Q']=0x10, ['R']=0x13, ['S']=0x1F, ['T']=0x14,
+                    ['U']=0x16, ['V']=0x2F, ['W']=0x11, ['X']=0x2D,
+                    ['Y']=0x15, ['Z']=0x2C,
+                    ['a']=0x1E, ['b']=0x30, ['c']=0x2E, ['d']=0x20,
+                    ['e']=0x12, ['f']=0x21, ['g']=0x22, ['h']=0x23,
+                    ['i']=0x17, ['j']=0x24, ['k']=0x25, ['l']=0x26,
+                    ['m']=0x32, ['n']=0x31, ['o']=0x18, ['p']=0x19,
+                    ['q']=0x10, ['r']=0x13, ['s']=0x1F, ['t']=0x14,
+                    ['u']=0x16, ['v']=0x2F, ['w']=0x11, ['x']=0x2D,
+                    ['y']=0x15, ['z']=0x2C,
+                };
+                sc = ascii_to_sc[ch & 0x7F];
+                if (!sc) sc = 0x39;   /* fallback: SPACE scancode */
+                entry = ((uint16_t)sc << 8) | ch;
+            }
+            *(uint16_t *)(v->kbd_buf + 16 + head * 2) = entry;
+        }
+        /* Publish the entry before advancing head (single producer). */
+        *(volatile uint16_t *)(v->kbd_buf + 0) = next;
+        /* Wake the v86mt-vt INT 16h blocker if it's sleeping on this VT.
+         * Pairs with sched_block(BLOCK_V86MT_KBD, h) in v86.c's INT 16h
+         * handler — see "Real blocking" comment there. */
+        sched_unblock(BLOCK_V86MT_KBD, h);
+        /* Also push the key into the BIOS Data Area keyboard buffer at
+         * 0x40:0x1E so direct-poll TUI apps (FreeDOS EDIT, every DFlat+
+         * application, TASM, MASM, etc.) see it. INT 16h apps use the
+         * ring above; BDA-pollers use this. The BDA is shared identity-
+         * mapped across all V86 tasks, so the layout matches what the
+         * hw kbd ISR writes for non-v86mt VTs. */
+        {
+            volatile uint16_t *bda_head = (volatile uint16_t *)0x41A;
+            volatile uint16_t *bda_tail = (volatile uint16_t *)0x41C;
+            uint16_t bhead = *bda_head;
+            uint16_t btail = *bda_tail;
+            uint16_t bnext = btail + 2;
+            if (bnext >= 0x3E) bnext = 0x1E;   /* wrap */
+            if (bnext != bhead) {              /* drop on full */
+                volatile uint16_t *slot =
+                    (volatile uint16_t *)(0x400 + btail);
+                /* Re-fetch the (now scancode-synthesized) entry from the
+                 * v86mt ring head-1 — that's the freshest published entry. */
+                uint16_t ring_idx = head;     /* index we just wrote */
+                uint16_t injected =
+                    *(uint16_t *)(v->kbd_buf + 16 + ring_idx * 2);
+                *slot = injected;
+                *bda_tail = bnext;
+            }
+        }
         regs->eax &= 0xFFFF0000;
         return 0;
     }
@@ -2557,6 +2781,23 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
         uint32_t es_base = desc_get_base(&c->ldt[es_idx]);
         struct dpmi_v86mt_vt *v = &c->v86mt_vts[h - 1];
         uint8_t *out = (uint8_t *)(es_base + (regs->edi & 0xFFFFFFFFu));
+        /* Sync the v86 task's VGA-text sandbox into the client-visible
+         * char_buf / attr_buf BEFORE writing state. EDIT and other TUI
+         * apps write directly to virtual 0xB8000; the sandbox captures
+         * those writes, and v86_sync_v86mt_sandbox deinterleaves them
+         * into the API-shaped char/attr buffers the client renders. */
+        {
+            int v86_id = v86_task_for_v86mt(client_id, h);
+            if (v86_id >= 0 && v->char_buf && v->attr_buf) {
+                uint32_t cells = (uint32_t)v->cols * v->rows;
+                uint8_t old_dirty = v->char_buf[0] ^ v->char_buf[cells - 1];
+                v86_sync_v86mt_sandbox(v86_id, v->char_buf, v->attr_buf, cells);
+                /* Bump screen_dirty if the sync actually changed anything
+                 * (cheap signature check). Lets DESKTOP know to re-blit. */
+                uint8_t new_dirty = v->char_buf[0] ^ v->char_buf[cells - 1];
+                if (new_dirty != old_dirty) v->screen_dirty++;
+            }
+        }
         /* Layout per V86MT-API.md (exactly 32 bytes, packed). */
         *(uint16_t *)(out + 0)  = v->task_running;
         *(uint16_t *)(out + 2)  = v->exit_code;
@@ -2591,8 +2832,10 @@ int dpmi_int31(int client_id, struct dpmi_regs *regs) {
         struct dpmi_v86mt_vt *v = &c->v86mt_vts[h - 1];
         if (v->char_sel) { ldt_free(c, SEL_TO_IDX(v->char_sel)); v->char_sel = 0; }
         if (v->attr_sel) { ldt_free(c, SEL_TO_IDX(v->attr_sel)); v->attr_sel = 0; }
+        if (v->kbd_sel)  { ldt_free(c, SEL_TO_IDX(v->kbd_sel));  v->kbd_sel  = 0; }
         if (v->char_buf) { kfree(v->char_buf); v->char_buf = 0; }
         if (v->attr_buf) { kfree(v->attr_buf); v->attr_buf = 0; }
+        if (v->kbd_buf)  { kfree(v->kbd_buf);  v->kbd_buf  = 0; }
         v->used = 0;
         v->task_running = 0;
         v->exited = 0;
@@ -3567,7 +3810,7 @@ redirect_to_handler:
                     dumped_n++;
                 }
             }
-            /* ES-leak hunt: at the first 2 #GP delivery events, dump
+            /* Ses36 ES-leak hunt: at the first 2 #GP delivery events, dump
              * stubinfo bytes at offset 0x20..0x2F from BOTH the original
              * 16-bit stub DS (where the stub wrote psp_selector) AND from
              * FS (where the 32-bit setup_environment reads it). Compares
@@ -3736,7 +3979,7 @@ redirect_to_handler:
             stk[6] = orig_esp & 0xFFFF;               /* faulting SP (low 16) */
             stk[7] = frame->ss & 0xFFFF;              /* faulting SS */
         }
-        /* H9 diagnostic: record this exception delivery's
+        /* Ses32 H9 diagnostic: record this exception delivery's
          * (fEIP, fCS, fEFL) triple into the circular log. Dumped at next
          * #GP delivery, alongside session-31's INT 21h log. */
         {
@@ -3778,7 +4021,7 @@ redirect_to_handler:
                 serial_puts("]\n");
                 deliv_dumps++;
             }
-            /* diagnostic: on #GP, dump the PM INT 21h push log
+            /* Ses31 diagnostic: on #GP, dump the PM INT 21h push log
              * (oldest → newest). If any entry shows (eip=0,cs=0) it
              * confirms Hypothesis A — one of our deliveries authored
              * the garbage IRETD frame. Otherwise Hypothesis B. */
@@ -3818,7 +4061,7 @@ redirect_to_handler:
                         serial_puthex(r->ss_esp);
                         serial_puts("\n");
                     }
-                    /* H9: dump the PM exception delivery push log
+                    /* Ses32 H9: dump the PM exception delivery push log
                      * (oldest → newest). pushEIP/pushCS = the faulting
                      * EIP/CS pushed at +0x0C inside the 32-bit exc frame
                      * (or +0x06 for 16-bit). A (pushEIP=0, pushCS=0) entry
@@ -3858,7 +4101,7 @@ redirect_to_handler:
                             serial_puts("\n");
                         }
                     }
-                    /* H9: dump the PM IRQ/INT delivery push log.
+                    /* Ses32 H9: dump the PM IRQ/INT delivery push log.
                      * pushEIP/pushCS = the interrupted EIP/CS pushed at
                      * +0x00 of the 3-dword (or 3-word) IRET frame. A
                      * (pushEIP=0, pushCS=0) entry confirms H9 for the
@@ -4524,7 +4767,7 @@ uint32_t dpmi_handle_pm_int(uint8_t vector, uint32_t esp) {
         {
             uint16_t cs_now = frame->cs & 0xFFFF;
             uint16_t h_sel  = c->pm_vectors[0x21].selector;
-            /* : deliver to the registered PM handler even when the
+            /* Ses31: deliver to the registered PM handler even when the
              * caller's CS matches h_sel. DOS/32A (and any DPMI 0.9
              * client) reflects DOS calls via DPMI 0x0300 — it does not
              * re-issue INT 21h in PM — so there is no recursion risk.
@@ -4558,7 +4801,7 @@ uint32_t dpmi_handle_pm_int(uint8_t vector, uint32_t esp) {
                     stk[1] = frame->cs & 0xFFFF;
                     stk[2] = frame->eflags & 0xFFFF;
                 }
-                /* diagnostic: record this delivery's pushed tuple
+                /* Ses31 diagnostic: record this delivery's pushed tuple
                  * into the circular log. Dumped at next #GP delivery. */
                 {
                     uint32_t i = pm_int21_log_count & (PM_INT21_LOG_N - 1);
@@ -4826,7 +5069,7 @@ uint32_t dpmi_handle_pm_int(uint8_t vector, uint32_t esp) {
             stk[1] = frame->cs & 0xFFFF;
             stk[2] = frame->eflags & 0xFFFF;
         }
-        /* H9 diagnostic: record this PM-INT delivery's pushed
+        /* Ses32 H9 diagnostic: record this PM-INT delivery's pushed
          * (EIP, CS, EFL) tuple into the circular log. Dumped at next
          * #GP delivery, alongside session-31's INT 21h log and the
          * session-32 PM exception log. Captures everything that hits the
@@ -5093,7 +5336,7 @@ int dpmi_rm_call_setup_isr(int client_id, struct isr_frame *frame) {
     serial_puthex(c->rm_call_save.pm_esp);
     serial_puts(" EFL=");
     serial_puthex(c->rm_call_save.pm_eflags);
-    /* ES-leak hunt: log the ES/DS we just snapshotted. The pair
+    /* Ses36 ES-leak hunt: log the ES/DS we just snapshotted. The pair
      * (PM-save ES, PM-restore ES) must be byte-identical across the V86
      * round-trip — any divergence proves V86 ES is leaking into PM. */
     serial_puts(" ES=");
@@ -5214,7 +5457,7 @@ void dpmi_rm_call_unwind(struct v86_frame *frame) {
     }
     serial_puts("\n");
 
-    /* H6-broad diagnostic: fixed-corridor dump at LDT[0x11F].base + 0x6500
+    /* Ses33 H6-broad diagnostic: fixed-corridor dump at LDT[0x11F].base + 0x6500
      * (16 dwords = 64 bytes), regardless of current SS:ESP. The corridor
      * brackets the eventual fault frame at offset +0x28 (= linear 0x6528),
      * which is dword index 10 in this window. If the dword at +0x28 reads

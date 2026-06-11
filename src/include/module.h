@@ -105,4 +105,12 @@ struct loaded_module *module_load_image(const char *display_name,
 /* For debugging / `lsmod`-style listing. */
 struct loaded_module *module_list_head(void);
 
+/* After a NULL return from module_load_image, returns 1 if the failure
+ * was specifically the module's own module_init() returning non-zero —
+ * i.e. a deterministic load-time error that won't be cured by re-trying
+ * once other modules are loaded. Returns 0 if the failure was something
+ * else (unresolved symbol, bad ELF, alloc failure, etc.) which might be
+ * resolved on a later autoload pass. Stable across this kernel version. */
+int module_last_load_was_init_failure(void);
+
 #endif

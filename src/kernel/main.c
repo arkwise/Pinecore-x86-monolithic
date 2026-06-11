@@ -162,6 +162,63 @@ static void autoload_drivers(void) {
         goto restore;
     }
 
+    /* s54 Tier-1: kmd allow-list. PCORE.CFG `kmd_allow = NAME1 NAME2 ...`
+     * (or implicitly enabled by `hardened = yes`) restricts which kmds
+     * the kernel will trust. Modules not on the list are permanently
+     * skipped — prevents a USB-stick-swap or FAT corruption from
+     * introducing an arbitrary Ring-0 .kmd. Applied here so the file
+     * isn't even read into memory. */
+    if (config_kmd_allowlist_active()) {
+        int refused = 0;
+        for (int i = 0; i < n; i++) {
+            if (loaded[i]) continue;
+            if (!config_kmd_is_allowed(names[i])) {
+                loaded[i] = 2;
+                refused++;
+                serial_puts("autoload: refused ");
+                serial_puts(names[i]);
+                serial_puts(" (not on kmd_allow list)\n");
+            }
+        }
+        if (refused) {
+            serial_puts("autoload: kmd_allow active — refused ");
+            serial_puthex((uint32_t)refused);
+            serial_puts(" module(s)\n");
+        }
+    }
+
+    /* PCORE.CFG `usb_enable = no` suppresses the USB stack — used when
+     * BIOS USB-legacy on the target hangs the V86 INT 16h path, or when
+     * coexisting with another driver project. Skip-list is by filename
+     * because the autoload loop runs before any module has loaded, so
+     * we cannot ask the modules about their category. */
+    if (!config_usb_enabled()) {
+        extern int strcmp(const char *, const char *);
+        static const char *usb_modules[] = {
+            "USBCORE.KMD", "UHCI.KMD", "OHCI.KMD", "EHCI.KMD",
+            "XHCI.KMD",    "HID.KMD",  "MSC.KMD",  0
+        };
+        int skipped = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; usb_modules[j]; j++) {
+                if (strcmp(names[i], usb_modules[j]) == 0) {
+                    loaded[i] = 2;  /* permanently skipped */
+                    skipped++;
+                    break;
+                }
+            }
+        }
+        if (skipped) {
+            klog_stage("autoload: USB off");
+            serial_puts("autoload: usb_enable=no — skipped ");
+            serial_puthex((uint32_t)skipped);
+            serial_puts(" USB module(s)\n");
+        }
+    } else {
+        klog_stage("autoload: USB on");
+        serial_puts("autoload: usb_enable=yes — loading USB stack\n");
+    }
+
     serial_puts("autoload: scanning \\DRIVERS\\*.KMD — ");
     serial_puthex((uint32_t)n);
     serial_puts(" file(s)\n");
@@ -203,7 +260,21 @@ static void autoload_drivers(void) {
             if (module_load_image(names[i], buf, sizes[i]) != NULL) {
                 loaded[i] = 1;
                 progress = 1;
+            } else if (module_last_load_was_init_failure()) {
+                /* Deterministic failure — the module loaded fine but its
+                 * own module_init returned an error (e.g. NULL.KMD's
+                 * net_register_provider returning EADDRINUSE because
+                 * LOOPBACK already took the single provider slot, or
+                 * R6040.KMD's PCI probe finding no hardware). No future
+                 * pass will change this, so mark permanent. */
+                loaded[i] = 2;
+                serial_puts("autoload: ");
+                serial_puts(names[i]);
+                serial_puts(" — init returned error, not retrying\n");
             }
+            /* Else: unresolved-symbol / other recoverable failure;
+             * leave loaded[i] == 0 so the next pass retries once more
+             * exports may have become visible. */
             kfree(buf);
         }
     }
@@ -232,10 +303,18 @@ void kernel_main(void) {
     serial_puts(KERNEL_MODE_NAME);
     serial_puts(" mode] ===\n\n");
 
+    /* s54 Tier-1: seed the stack canary from RDTSC as the very first
+     * thing after serial. Every function entered after this point uses
+     * the high-entropy guard instead of the link-time placeholder. */
+    {
+        extern void stack_chk_init(void);
+        stack_chk_init();
+    }
+
     /* VGA text mode */
     vga_init();
     vga_set_color(VGA_LGREEN, VGA_BLACK);
-    vga_puts("Pinecore v0.2");
+    vga_puts("Pinecore v0.2.0.a");
     vga_set_color(VGA_YELLOW, VGA_BLACK);
     if (KERNEL_MODE_IS_PURE) {
         vga_puts(" [PURE]");
@@ -284,6 +363,13 @@ void kernel_main(void) {
     serial_puts("RTC init...\n");
     rtc_init(8192);
     print_ok("RTC - 8192 Hz preemption clock");
+
+    /* Arm the boot watchdog. From here until sched_start() the kernel
+     * must call klog_stage() or klog_iter() at least once every 15s
+     * or the RTC IRQ fires kernel_panic_watchdog() with the last
+     * stage label — a BSOD instead of a silent CLI'd hang. Disarmed
+     * just before sched_start() (idle != hang). */
+    klog_watchdog_arm(15);
 
     /* Physical memory manager */
     klog_stage("init: PMM");
@@ -554,6 +640,10 @@ void kernel_main(void) {
     serial_puts("\n*** Starting Pinecore [");
     serial_puts(KERNEL_MODE_NAME);
     serial_puts("] ***\n\n");
+    /* Disarm boot watchdog: a quiescent shell waiting on input is not
+     * a hang. Any future runtime watchdog work would re-arm against a
+     * different progress metric (e.g. scheduler tick count). */
+    klog_watchdog_disarm();
     sched_start();  /* never returns — jumps to shell task */
 
     /* Should never reach here */

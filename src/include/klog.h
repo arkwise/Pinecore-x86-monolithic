@@ -31,4 +31,17 @@ void klog_iter(const char *suffix);
 /* Clear the status line. */
 void klog_clear(void);
 
+/* Boot watchdog. Once armed, the RTC IRQ calls klog_watchdog_check()
+ * every tick. If `seconds` elapse with no klog_stage() / klog_iter()
+ * call, the watchdog fires kernel_panic_watchdog(last_stage), painting
+ * a BSOD with the last stage label visible — diagnostic for boot hangs
+ * on serial-less hardware. Disarmed once the scheduler starts (idle
+ * shell with no input is not a hang).
+ *
+ * Both klog_stage() and klog_iter() reset the "last progress" timestamp
+ * — they're the heartbeat. */
+void klog_watchdog_arm(uint32_t seconds);
+void klog_watchdog_disarm(void);
+void klog_watchdog_check(void);  /* called from RTC IRQ */
+
 #endif

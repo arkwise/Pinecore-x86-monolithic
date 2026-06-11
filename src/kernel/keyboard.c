@@ -538,7 +538,7 @@ void keyboard_inject_key(uint8_t scancode, uint8_t ascii) {
     }
 }
 
-/*  — multi-byte scancode sequence injection for USB HID.
+/* s53.a — multi-byte scancode sequence injection for USB HID.
  *
  * Walks the byte sequence applying the same E0/break-bit logic the
  * IRQ-1 path uses, then resolves ASCII via the active layout for the

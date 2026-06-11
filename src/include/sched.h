@@ -37,7 +37,8 @@ enum block_reason {
     BLOCK_SLEEP,
     BLOCK_VT_REQUEST,
     BLOCK_FDC,         /* waiting for floppy IRQ */
-    BLOCK_VT_HIDDEN    /* graphics-mode VT not currently displayed */
+    BLOCK_VT_HIDDEN,   /* graphics-mode VT not currently displayed */
+    BLOCK_V86MT_KBD    /* v86mt-vt waiting on its kbd ring; data = VT handle */
 };
 
 struct task {

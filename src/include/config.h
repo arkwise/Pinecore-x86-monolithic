@@ -34,7 +34,7 @@ int  config_is_firstboot(void);
  * the panic-handler infrastructure is in so a hang is recoverable. */
 int  config_kbd_v86_enabled(void);
 
-/*  — USB stack policy (doc 54 §8).
+/* s53.a — USB stack policy (doc 54 §8).
  *
  *   usb_enable             : master switch, default 1 (load USB modules)
  *   usb_trace              : verbose COM1 diagnostics, default 0
@@ -60,5 +60,28 @@ const char *config_net_provider(void);
  * if no `net_dns_server` key is set (DNS will fail with EHOSTUNREACH
  * until configured). */
 uint32_t    config_net_dns_server(void);
+
+/* s54 — Tier-1 security mitigations. */
+
+/* Master switch — `hardened = yes` in PCORE.CFG. When set, it flips the
+ * defaults of the other security keys: net_v86_allowed → no,
+ * kmd_allowlist → on. Sub-keys set explicitly still override. */
+int  config_hardened(void);
+
+/* Returns 1 if V86 DOS tasks may issue INT 0x80 network syscalls
+ * (default 1; default 0 when hardened). Checked by idt.c at the INT 0x80
+ * trap site before dispatching to net_dispatch. */
+int  config_net_v86_allowed(void);
+
+/* Returns 1 if any kmd_allow list was given (also implicitly true under
+ * hardened). When active, config_kmd_is_allowed() is called for each
+ * candidate .kmd in \DRIVERS\ during autoload and unlisted ones are
+ * refused. */
+int  config_kmd_allowlist_active(void);
+
+/* Returns 1 if `name` (e.g. "USBCORE.KMD") is allow-listed, OR if the
+ * allow-list is inactive. Exact case-sensitive match against the
+ * PCORE.CFG `kmd_allow` entries. */
+int  config_kmd_is_allowed(const char *name);
 
 #endif

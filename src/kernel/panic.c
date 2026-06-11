@@ -191,3 +191,42 @@ void kernel_panic(const char *reason, void *isr_frame_ptr) {
 void kernel_panic_str(const char *reason) {
     kernel_panic(reason, 0);
 }
+
+/* Boot-watchdog panic. Paints reason + last klog_stage label on the
+ * normal panic frame, leaves row 24 untouched (the live klog status
+ * line already has the same label there). No register dump — this is
+ * raised from inside the RTC IRQ where the frame is the RTC handler's,
+ * not the wedged code's, so it would be misleading. */
+void kernel_panic_watchdog(const char *last_stage) {
+    __asm__ volatile("cli");
+
+    serial_puts("\n\n*** PINECORE PANIC: WATCHDOG ***\n");
+    serial_puts("  Kernel made no forward progress for the watchdog budget.\n");
+    serial_puts("  Last stage: ");
+    if (last_stage) serial_puts(last_stage);
+    serial_puts("\n");
+
+    clear_screen(ATTR_BODY);
+    fill_row(0, ATTR_TITLE, ' ');
+    put_str_at(0, 2,  ATTR_TITLE, "*** PINECORE PANIC ***");
+    put_str_at(0, 50, ATTR_TITLE, "Kernel halted - cycle power");
+
+    put_str_at(2, 2, ATTR_BODY, "Reason: WATCHDOG - no forward progress");
+    put_str_at(4, 2, ATTR_LABEL, "Last stage:");
+    if (last_stage) put_str_at(4, 14, ATTR_BODY, last_stage);
+
+    put_str_at(6,  2, ATTR_BODY,
+               "klog_stage() / klog_iter() did not fire within the timeout.");
+    put_str_at(7,  2, ATTR_BODY,
+               "The kernel is stuck in a loop or wedged interrupt handler.");
+    put_str_at(9,  2, ATTR_LABEL, "Next step:");
+    put_str_at(9, 14, ATTR_BODY,
+               "row 24 still shows the live klog stage tag.");
+    put_str_at(10, 14, ATTR_BODY,
+               "Photograph row 24 + this banner before power-cycling.");
+
+    put_str_at(23, 2, ATTR_LABEL,
+               "Pinecore halted (watchdog). Cycle power.");
+
+    while (1) __asm__ volatile("cli; hlt");
+}

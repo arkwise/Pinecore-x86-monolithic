@@ -255,11 +255,26 @@ int net_resolve(const char *hostname, struct in_addr *out) {
     sa.sin_port        = (uint16_t)((DNS_PORT << 8) | (DNS_PORT >> 8)); /* htons */
     sa.sin_addr.s_addr = dns_ip;     /* already network-order from config */
 
+    /* s54 Tier-1: hardened TXID. The earlier `pit_ticks_get ^ attempt`
+     * is predictable enough for an off-path attacker who knows roughly
+     * when the query was issued. Mix in RDTSC's low half (much higher
+     * entropy at boot) and a static counter that survives across calls
+     * so even back-to-back resolutions within one PIT tick get distinct
+     * IDs. Still not a CSPRNG — TODO for v2 — but raises the bar from
+     * "trivially guessable" to "off-path attacker needs ~2^32 work to
+     * land a poison". */
+    static uint32_t g_resolve_seq = 0xA5A5A5A5u;
+    uint32_t tsc_lo, tsc_hi;
+    __asm__ __volatile__("rdtsc" : "=a"(tsc_lo), "=d"(tsc_hi));
+    g_resolve_seq = g_resolve_seq * 1103515245u + 12345u + tsc_lo;
+
     for (attempt = 0; attempt < 2; attempt++) {
         uint64_t deadline;
         pcnet_ssize_t sent;
 
-        txid = (uint16_t)(pit_ticks_get() ^ (uint16_t)(attempt + 1));
+        txid = (uint16_t)(g_resolve_seq ^ (g_resolve_seq >> 16) ^
+                          (uint16_t)(pit_ticks_get() + attempt));
+        g_resolve_seq = g_resolve_seq * 1103515245u + 12345u;
         wbe16(q + 0, txid);
 
         sent = ops->sock_sendto(cookie, q, (uint32_t)qlen, 0,
@@ -283,8 +298,34 @@ int net_resolve(const char *hostname, struct in_addr *out) {
                                           (struct sockaddr *)&from, &flen);
                 if (rlen < DNS_HDR_LEN) { rc = PCNET_ETIMEDOUT; continue; }
 
+                /* s54 Tier-1: validate source. The response MUST come
+                 * from the IP and port 53 we sent the query to. An
+                 * off-path attacker spraying responses doesn't know our
+                 * source port, but additionally constraining the source
+                 * IP closes any provider that happens to leak the port
+                 * (loopback's sendto doesn't actually allocate one). */
+                if (from.sin_addr.s_addr != dns_ip) continue;
+                if (from.sin_port != sa.sin_port)   continue;
+
                 /* Match transaction id; mismatched response → keep waiting. */
                 if (rbe16(r + 0) != txid) continue;
+
+                /* s54 Tier-1: echo-check the question name. A response
+                 * to query A with the question section of B is suspect,
+                 * even if the txid matches. Compare byte-for-byte
+                 * against what we sent — both are length-prefixed labels
+                 * terminated by a zero byte. */
+                {
+                    int qpos = DNS_HDR_LEN;
+                    int spos = DNS_HDR_LEN;
+                    int mismatch = 0;
+                    while (qpos < qlen - 4 && spos < (int)rlen) {
+                        if (q[qpos] != r[spos]) { mismatch = 1; break; }
+                        if (q[qpos] == 0) break;
+                        qpos++; spos++;
+                    }
+                    if (mismatch) continue;
+                }
 
                 /* QR=1 + RCODE check (low 4 bits of flags[1]). */
                 if ((r[2] & 0x80) == 0)       { rc = PCNET_EHOSTUNREACH; goto done; }

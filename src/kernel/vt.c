@@ -12,6 +12,7 @@
 #include "sched.h"
 #include "serial.h"
 #include "dos.h"
+#include "v86.h"
 #include "keyboard.h"
 #include "shell.h"
 #include "heap.h"
@@ -34,6 +35,8 @@ extern void *memset(void *s, int c, uint32_t n);
  * address directly. The array of page addresses lives on the kernel
  * heap (~kB per VT, easily covered by the 256 KB heap).
  * ================================================================ */
+
+static void draw_status_bar(void);
 
 static int vt_gfx_save_ensure(int vt_num, uint32_t bytes) {
     struct vt *v;
@@ -213,12 +216,26 @@ int vt_create(enum vt_type type) {
 }
 
 void vt_destroy(int vt_num) {
+    int reap_v86 = -1;
+    int reap_task = -1;
+
     if (vt_num < 0 || vt_num >= VT_MAX) return;
     if (vts[vt_num].type == VT_UNUSED) return;
 
     serial_puts("VT: destroying vt");
     serial_puthex(vt_num);
     serial_puts("\n");
+
+    /* Snapshot the bound tasks BEFORE clearing the VT fields. If the user
+     * closed a DOS VT via Ctrl+X, the underlying V86 task is still alive
+     * holding its v86_tasks[] slot and its conventional-memory arena. We
+     * reap both below so the slot is reusable. (sched_v86_exit's clean-exit
+     * path already calls vt_destroy after destroying the V86 task, so on
+     * that path reap_v86 ends up -1 and we skip the reap.) */
+    if (vts[vt_num].type == VT_DOS) {
+        reap_v86  = vts[vt_num].v86_task_id;
+        reap_task = vts[vt_num].task_id;
+    }
 
     /* If this is the active VT, switch to another */
     if (active_vt == vt_num) {
@@ -244,6 +261,25 @@ void vt_destroy(int vt_num) {
     vts[vt_num].task_id = -1;
     vts[vt_num].v86_task_id = -1;
     vts[vt_num].video = VT_VID_TEXT_03H;
+
+    /* Reap the V86 task + its hosting scheduler task. Done after VT clear
+     * so any callbacks into VT routines from the reap path see UNUSED. */
+    if (reap_v86 >= 0) {
+        extern void dpmi_release_client_for_v86(int v86_task_id);
+        dpmi_release_client_for_v86(reap_v86);
+        v86_destroy_task(reap_v86);
+    }
+    if (reap_task >= 0) {
+        struct task *t = sched_get_task(reap_task);
+        if (t && t->state != TASK_DEAD && t->state != TASK_UNUSED)
+            t->state = TASK_DEAD;
+    }
+
+    /* If we destroyed a non-active VT, vt_switch wasn't called above and
+     * the tab row still shows the dead VT. Refresh the status bar so ghost
+     * tabs disappear immediately. */
+    if (active_vt >= 0 && active_vt != vt_num)
+        draw_status_bar();
 }
 
 int vt_count_active(void) {
@@ -531,17 +567,11 @@ void vt_manager_entry(void) {
 
         if (vt_request == VT_REQ_NEW_DOS) {
             vt_request = VT_REQ_NONE;
-            /* Only allow one DOS VT at a time (they share conventional memory) */
-            {
-                int has_dos = 0, i;
-                for (i = 0; i < VT_MAX; i++) {
-                    struct vt *v = vt_get(i);
-                    if (v && v->type == VT_DOS) { has_dos = 1; break; }
-                }
-                if (!has_dos && vt_count_active() < VT_MAX) {
-                    vt_create_dos();
-                }
-            }
+            /* Boot already auto-launches FreeCom (COMMAND.COM) on vt1.
+             * Ctrl+C spawns DRDOS.COM as the second DOS shell for the
+             * 3-VT demo: Commando + FreeCom + DR-DOS. */
+            if (vt_count_active() < VT_MAX)
+                vt_create_dos_exec("DRDOS.COM", "/P");
         } else if (vt_request == VT_REQ_NEW_SHELL) {
             vt_request = VT_REQ_NONE;
             if (vt_count_active() < VT_MAX) {

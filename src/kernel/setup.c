@@ -85,18 +85,6 @@ void setup_run(int vt) {
     int n = keyboard_layout_count();
     if (n <= 0) return;
 
-    /* s50 Vortex86 USB-kbd diag build — first-boot setup wizard blocks
-     * on keyboard input, which is exactly the broken thing we're trying
-     * to debug. Short-circuit: pick US default, save config (flips
-     * firstboot=no for next boot), drop straight to shell so the user
-     * can see the IRQ-1 diagnostic in the bottom-right corner. Revert
-     * this hunk once USB keyboard works. */
-    serial_puts("setup: VORTEX86-DIAG-BUILD — skipping wizard, defaulting to US\n");
-    keyboard_set_layout("us");
-    config_save();
-    vt_clear(vt);
-    return;
-
     serial_puts("setup: entering first-boot screen on vt=");
     {
         char b[12];

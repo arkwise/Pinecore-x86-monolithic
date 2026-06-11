@@ -15,6 +15,7 @@
 #include "sched.h"
 #include "dpmi.h"
 #include "net.h"
+#include "config.h"
 
 /* IDT entry (386-bible p.101) */
 struct idt_entry {
@@ -32,6 +33,9 @@ struct idt_ptr {
 
 static struct idt_entry idt[256];
 static struct idt_ptr   idtp;
+
+/* Counter for the dpmi_busy starvation guard in the RTC handler. */
+static int dpmi_busy_skips = 0;
 
 /* Change an existing IDT gate from DPL=0 to DPL=3 (for DPMI Ring 3 access) */
 void idt_set_gate_dpl3(uint8_t num) {
@@ -254,6 +258,17 @@ static uint32_t isr_dispatch_inner(uint32_t esp) {
      * Kernel callers (rare, future use) pass EBX = linear and hit the
      * fallback path. Dispatch is synchronous; no scheduler involvement. */
     if (n == 128) {
+        /* s54 Tier-1: V86 net jail. PCORE.CFG `net_v86_allowed = no`
+         * (default under `hardened = yes`) blocks DOS-era V86 apps from
+         * reaching the network syscall — they predate any concept of
+         * untrusted-input handling. Only PM DPMI clients are trusted to
+         * do sockets when the jail is on. */
+        if ((frame->eflags & 0x20000) && !config_net_v86_allowed()) {
+            struct net_syscall_frame *nf =
+                (struct net_syscall_frame *)(unsigned long)frame->ebx;
+            if (nf) nf->ret = (int32_t)-200;   /* PCNET_ENOPROVIDER */
+            return esp;
+        }
         struct net_syscall_frame *nf =
             (struct net_syscall_frame *)(unsigned long)frame->ebx;
         uint32_t ds_base = 0;
@@ -552,10 +567,21 @@ static uint32_t isr_dispatch_inner(uint32_t esp) {
          * a DOS extender that has hooked it expecting software-yield semantics
          * causes a yield storm at 8192 Hz that starves the client. Keep RTC
          * kernel-only; the client gets PIT (vector 0x20) as its timer signal. */
-        /* Skip preemption while DPMI host is processing a client request.
-         * Preempting during #GP fixups or INT 31h causes state corruption. */
-        if (!dpmi_busy)
+        /* Normally skip preemption while DPMI host is processing a client
+         * request — preempting during #GP fixups or INT 31h can corrupt
+         * client state. Starvation guard: after 4 consecutive busy-skipped
+         * ticks (~0.5 ms) force a preempt anyway so a PM client hammering
+         * INT 31h in a tight idle loop can't lock out the rest of the
+         * system. With v86mt-vt now using sched_block on INT 16h waits
+         * (see v86.c), it's invisible to the scheduler while idle and
+         * DESKTOP runs uncontested; this guard is mostly belt-and-braces. */
+        if (!dpmi_busy) {
+            dpmi_busy_skips = 0;
             sched_schedule(&esp);
+        } else if (++dpmi_busy_skips >= 4) {
+            dpmi_busy_skips = 0;
+            sched_schedule(&esp);
+        }
         return esp;
     }
 
