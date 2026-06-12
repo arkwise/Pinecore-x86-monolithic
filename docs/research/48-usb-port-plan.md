@@ -322,7 +322,7 @@ A patch will accompany this doc.
 
 ### External
 - USBDDOS upstream (verify): <https://github.com/crazii/USBDDOS>
-- Linux v6.6 USB host: `/Users/chelsonaitcheson/Projects/linux-ref/drivers/usb/host/`
+- Linux v6.6 USB host: `linux-ref/drivers/usb/host/`
 - iPXE xHCI (recommended reference): <https://github.com/ipxe/ipxe/tree/master/src/drivers/usb>
 - xHCI 1.2 spec: Intel free PDF
 - USB 2.0 / 3.2 specs: USB-IF free downloads

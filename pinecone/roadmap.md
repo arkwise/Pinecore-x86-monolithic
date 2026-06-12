@@ -178,10 +178,10 @@ no-op.
 
 | Tool | Path | Notes |
 |------|------|-------|
-| Cross-gcc | `/Users/chelsonaitcheson/Projects/djgpp_12/bin/i586-pc-msdosdjgpp-gcc` | GCC 12.2.0, Mach-O native |
-| DJGPP env | `/Users/chelsonaitcheson/Projects/djgpp_12/djgpp.env` | export DJGPP=this |
-| Allegro lib | `/Users/chelsonaitcheson/Projects/djgpp_12/lib/liballeg.a` | 4.2.2 |
-| CWSDPMI | `/Users/chelsonaitcheson/Projects/djgpp_12/bin/cwsdpmi.exe` | Bundled with FreeDOS test image |
+| Cross-gcc | `/opt/djgpp/bin/i586-pc-msdosdjgpp-gcc` | GCC 12.2.0, Mach-O native |
+| DJGPP env | `/opt/djgpp/djgpp.env` | export DJGPP=this |
+| Allegro lib | `/opt/djgpp/lib/liballeg.a` | 4.2.2 |
+| CWSDPMI | `/opt/djgpp/bin/cwsdpmi.exe` | Bundled with FreeDOS test image |
 
 ---
 

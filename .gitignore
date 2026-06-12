@@ -59,7 +59,6 @@ docs/research/refs/**/*.pdf
 # Workflow / session files — not part of the public release
 SESSION-STATE.md
 SESSION-METRICS.md
-docs/ref/AI-REFERENCE.md
 
 # Debug helper scripts (machine-specific paths)
 src/gdb-*.gdb

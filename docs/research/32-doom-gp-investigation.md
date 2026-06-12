@@ -224,7 +224,7 @@ Less likely (we'd expect to see a delivery or INT instruction), but possible if 
 ## How to reproduce
 
 ```bash
-cd /Users/chelsonaitcheson/Projects/pinecore-x86/src
+cd src
 make all
 rm -f /tmp/pinecore-serial.log
 qemu-system-i386 -kernel kernel.pure.bin \
@@ -247,7 +247,7 @@ Key greps:
 
 ## Reference paths
 
-- DOS/32A source: `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/`
+- DOS/32A source: `dos32a/src/dos32a/text/`
   - `kernel/intr.asm` — `int_matrix`, `int_main`, `exc_matrix`
   - `client/int21h.asm` — `_int21` AH dispatcher (registered as `_int21_ip` chain target, NOT installed PM vector)
   - `client/debug.asm` — `eh00..eh0E` exception handler stubs + `eh_common` (crash reporter)
@@ -257,4 +257,4 @@ Key greps:
   - PM exception delivery: lines ~1993-2090
   - F3-return / exception unwind: lines ~2247-2405
   - 0x0302 trampoline: `dpmi_rm_call_setup_isr` (separate function)
-- 386 bible: `/Users/chelsonaitcheson/Projects/i386-bible/` (i386 architecture facts)
+- 386 bible: `i386-bible/` (i386 architecture facts)

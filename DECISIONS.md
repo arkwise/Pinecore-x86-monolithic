@@ -38,7 +38,7 @@ DECIDED: Boot stub is PINE.COM — launches Pinecore from FreeDOS prompt — dat
 DECIDED: Built-in Linux-like shell alongside FREECOM — WHY: Custom kernel-mode shell with ls/cat/cp/rm/mkdir commands, doesn't need V86. FREECOM still available as a V86 DOS shell option. — date: 2026-04-30
 DECIDED: Built-in shell runs in kernel mode — WHY: Direct access to FAT driver, keyboard, VGA. No V86 overhead, no DOS emulation needed. — date: 2026-04-30
 DECIDED: Virtual terminal system with Alt+1..6 switching — WHY: Multiple shells running simultaneously, demonstrates preemptive multitasking. Like Linux VTs. — date: 2026-04-30
-DECIDED: VT1 = Pinecore shell (default), VT2 = COMMAND.COM — WHY: Show the native shell first, DOS available on demand — date: 2026-04-30
+DECIDED: VT1 = Pinecore Commando (default), VT2 = COMMAND.COM — WHY: Show the native shell first, DOS available on demand — date: 2026-04-30
 DECIDED: Each VT has its own 80x25 shadow buffer — WHY: Active VT renders to VGA, inactive VTs buffer silently. Already have text_buf[] in v86_task struct. — date: 2026-04-30
 DECIDED: Status bar on VGA row 0 — WHY: Shows VT tabs, active indicator, hotkey hints. Shells render from row 1. — date: 2026-05-01
 DECIDED: Software context switch (not hardware TSS) — WHY: Faster, flexible, matches Linux/Windows. ESP swap in timer ISR. — date: 2026-05-01

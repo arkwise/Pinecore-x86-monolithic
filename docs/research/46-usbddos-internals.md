@@ -2,7 +2,7 @@
 
 Status: research only (no code). Companion to `45-dos-usb-stack-landscape.md`, `47-xhci-from-spec.md`, `48-usb-port-plan.md`.
 
-Source-of-truth: local clone at **`/Users/chelsonaitcheson/Projects/USBDDOS-master/USBDDOS/`**. Tag-checked against v1.0fix2 (CHANGELOG: 12/06/2023). License: GPL v2 (`/Users/chelsonaitcheson/Projects/USBDDOS-master/COPYING`).
+Source-of-truth: local clone at **`USBDDOS-master/USBDDOS/`**. Tag-checked against v1.0fix2 (CHANGELOG: 12/06/2023). License: GPL v2 (`USBDDOS-master/COPYING`).
 
 Total LOC: ~22,000 across 44 files (`USBDDOS/*.c|*.h` + subdirs `HCD/`, `CLASS/`, `DPMI/`). The chip-touching subset that matters for our port is roughly **8,000-9,000 LOC** — close to the e1000e port-sizing.
 
@@ -284,7 +284,7 @@ This is the standard open-source contribution arc. Time investment: ~3-4 session
 
 ## 10. References
 
-### Local files (all in `/Users/chelsonaitcheson/Projects/USBDDOS-master/`)
+### Local files (all in `USBDDOS-master/`)
 - `README.md` — author's project description, supported hardware, build options
 - `CHANGELOG` — recent release notes
 - `TODO` — open work items, the source of our "improvements" priority list

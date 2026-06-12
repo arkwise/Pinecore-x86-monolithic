@@ -4,7 +4,7 @@
 # Produces a COFF go32 DOS binary that needs a DPMI host at runtime
 # (CWSDPMI.EXE on FreeDOS, or Pinecore's native DPMI host).
 
-DJGPP_PATH := /Users/chelsonaitcheson/Projects/djgpp_12
+DJGPP_PATH := /opt/djgpp
 export DJGPP := $(DJGPP_PATH)/djgpp.env
 
 CC      := $(DJGPP_PATH)/bin/i586-pc-msdosdjgpp-gcc
@@ -105,7 +105,7 @@ run-freedos: pack-freedos
 	    -serial file:/tmp/pinecone-serial.log -display cocoa -m 32 -boot a
 
 # Boot Pinecore with DESKTOP.EXE on disk (Pinecore IS the DPMI host).
-# At the Pinecore shell:  exec desktop.exe
+# At the Pinecore Commando:  exec desktop.exe
 run-pinecore: pack-pinecore
 	cd $(PARENT)/src && qemu-system-i386 -kernel kernel.pure.bin \
 	    -drive file=pinecore-pure-hdd.img,format=raw,if=ide,index=0 \

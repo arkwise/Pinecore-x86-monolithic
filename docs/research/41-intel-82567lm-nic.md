@@ -7,7 +7,7 @@ Companion docs:
 - `43-packet-driver-spec.md` — Crynwr Packet Driver API
 - `44-82567lm-port-plan.md` — synthesis + phased plan
 
-Source-of-truth used while writing: a local v6.6 sparse-checkout of `linux/drivers/net/ethernet/intel/e1000e/` at `/Users/chelsonaitcheson/Projects/linux-e1000e-ref/`. Every "e1000e: …" citation below was line-verified against that tree.
+Source-of-truth used while writing: a local v6.6 sparse-checkout of `linux/drivers/net/ethernet/intel/e1000e/` at `linux-e1000e-ref/`. Every "e1000e: …" citation below was line-verified against that tree.
 
 ---
 

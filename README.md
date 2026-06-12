@@ -123,7 +123,7 @@ Current focus and priority list live in [`roadmap.md`](roadmap.md) and the most 
 
 ## Credits
 
-Built by the **DOSCore Games Team** — Anna Shenan, Ashif Mahmud, Chelson Aitcheson, Konstantin, Kush, Mark Woods — plus various paid freelance contractors of the DOSCore Games Team over the years. Reference materials (Intel manuals, DPMI / USB / EHCI / OHCI / xHCI specifications, and the source of permissively- or GPL-licensed reference implementations) were synthesized into the project's research chapters under [`docs/research/`](docs/research/) with AI assistance; every line of code in this repository is original work written from primary sources and reviewed by human authors.
+Built by the **DOSCore Games Team** — Anna Shenan, Ashif Mahmud, Chelson Aitcheson, Konstantin, Kush, Mark Woods. Reference materials (Intel manuals, DPMI / USB / EHCI / OHCI / xHCI specifications, and the source of permissively- or GPL-licensed reference implementations) were synthesized into the project's research chapters under [`docs/research/`](docs/research/); every line of code in this repository is original work written from primary sources and reviewed by human authors.
 
 Per-person and per-project attribution lives in:
 - [`AUTHORS.md`](AUTHORS.md) — DOSCore Games Team + named upstream contributors

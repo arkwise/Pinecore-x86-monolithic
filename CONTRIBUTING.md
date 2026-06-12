@@ -2,7 +2,7 @@
 
 > Welcome. pinecore-x86 is a research-driven project: every architectural decision is grounded in a primary source (an Intel manual, a DPMI specification, a USB spec, or a clean reference implementation), and every change is expected to follow the same discipline.
 >
-> This file is the project's working contract. It tells contributors what's expected before a PR is opened, what conventions the codebase follows, and what the toolchain looks like. It applies equally to human contributors and to AI-assisted contributions (see also [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md)).
+> This file is the project's working contract. It tells contributors what's expected before a PR is opened, what conventions the codebase follows, and what the toolchain looks like. It applies to all contributors (see also [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md)).
 
 ---
 
@@ -131,17 +131,7 @@ If the PR is purely research (a new `docs/research/` chapter), the citation disc
 
 ---
 
-## 7. AI-assisted contributions
-
-AI-assisted PRs (drafting, research synthesis, code generation) are accepted under the same discipline as human PRs. Specifically:
-
-- The contributor is the human who reviews and submits — not the AI. Sign your PR with your own handle.
-- Attribution must be verified per [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md). AI-proposed attribution that cannot be traced to a primary source must be removed or downgraded to "informal" with the lack-of-formal-attribution noted.
-- Code that the AI drafted must still build cleanly under the project's cross-compiler before merge — clang-only "fixes" are explicitly disallowed (§4).
-
----
-
-## 8. Getting help
+## 7. Getting help
 
 - For technical questions: read [`docs/research/`](docs/research/) first; the answer is often there.
 - For build / toolchain issues: check [`docs/research/06-toolchain.md`](docs/research/06-toolchain.md).

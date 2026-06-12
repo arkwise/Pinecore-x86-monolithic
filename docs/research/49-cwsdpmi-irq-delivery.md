@@ -2,7 +2,7 @@
 
 **Status:** RESEARCH, not yet implemented in pinecore-x86. Read in s36 dynamic-loop iteration 1.
 
-**Source files (local at `/Users/chelsonaitcheson/Downloads/cwsdpmi-master/src/`):**
+**Source files (local at `Downloads/cwsdpmi-master/src/`):**
 - `exphdlr.c:40-76` — author-written architecture comment, IS the spec.
 - `exphdlr.c:108-115` — vector-translation table.
 - `exphdlr.c:166-218` — PIC remap (`init_controllers`).

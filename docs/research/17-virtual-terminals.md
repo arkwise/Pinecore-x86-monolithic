@@ -11,7 +11,7 @@
 
 Like Linux VTs (Ctrl+Alt+F1-F6) but for Pinecore:
 - Multiple independent terminals, each with its own 80x25 text buffer
-- Each terminal runs either the Pinecore shell (kernel mode) or COMMAND.COM (V86 mode)
+- Each terminal runs either the Pinecore Commando (kernel mode) or COMMAND.COM (V86 mode)
 - Alt+1..6 switches between terminals
 - Active terminal renders to VGA (0xB8000), inactive terminals buffer silently
 - Demonstrates the power of Ring 0: preemptive multitasking, own drivers, multiple environments
@@ -60,7 +60,7 @@ struct vt {
 - `vt_getc(int vt)` — read from VT's keyboard queue
 - `vt_render(int vt)` — copy shadow buffer to VGA (for active VT)
 
-### 2. Pinecore Shell (`src/kernel/shell.c`)
+### 2. Pinecore Commando (`src/kernel/shell.c`)
 
 Kernel-mode shell — runs directly, no V86 overhead.
 
@@ -110,7 +110,7 @@ Currently `dos_set_console()` sets global callbacks for putchar/getchar/kbhit. W
 - Each V86 COMMAND.COM task binds to a specific VT
 - `dos_putchar` writes to that VT's text buffer (not directly to VGA)
 - `dos_getchar` reads from that VT's keyboard queue
-- The Pinecore shell reads/writes its own VT directly
+- The Pinecore Commando reads/writes its own VT directly
 
 ---
 
@@ -119,7 +119,7 @@ Currently `dos_set_console()` sets global callbacks for putchar/getchar/kbhit. W
 1. **VT data structure + manager** — create/destroy VTs, switch active, buffer management
 2. **VT rendering** — copy shadow buffer to VGA on switch, write to shadow when inactive
 3. **Keyboard routing** — Alt+N hotkeys, per-VT key queues
-4. **Pinecore shell core** — command line reader, parser, dispatcher
+4. **Pinecore Commando core** — command line reader, parser, dispatcher
 5. **Basic commands** — ls, cd, pwd, cat, echo, clear, help, ver
 6. **File commands** — cp, mv, rm, mkdir (needs FAT write)
 7. **COMMAND.COM VT** — bind V86 task to a VT, route console I/O
@@ -144,7 +144,7 @@ Currently `dos_set_console()` sets global callbacks for putchar/getchar/kbhit. W
 ```
 DECIDED: VTs use 80x25 text mode (no graphics for VT system)
 DECIDED: Alt+1..6 for switching (not Ctrl+Alt to avoid conflicts)
-DECIDED: VT1 = Pinecore shell by default, VT2 = COMMAND.COM
+DECIDED: VT1 = Pinecore Commando by default, VT2 = COMMAND.COM
 DECIDED: Shell runs in kernel mode (no V86, direct driver access)
 DECIDED: Each COMMAND.COM gets its own V86 task + DOS task
 ```

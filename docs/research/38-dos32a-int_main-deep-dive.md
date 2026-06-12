@@ -18,7 +18,7 @@ DOS/32A's `int_main` is the PM-side INT-N dispatcher. Its tail is `add esp, 22h;
 
 ## `int_main` — full source analysis
 
-**File:** `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/kernel/intr.asm:126-210`
+**File:** `dos32a/src/dos32a/text/kernel/intr.asm:126-210`
 
 ### Entry
 
@@ -69,7 +69,7 @@ The only direct JMP into `int_matrix` found in DOS/32A source: **`exit.asm:77 @@
 
 ## `int21h_pm` — the chain handler
 
-**File:** `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/kernel/exit.asm:44-77`
+**File:** `dos32a/src/dos32a/text/kernel/exit.asm:44-77`
 
 ```
 int21h_pm:
@@ -102,7 +102,7 @@ Both potentially resolve to address `0xFF:0x84` (per the trace). They cannot bot
 
 ## `_int21` — the AH-dispatcher (the other candidate)
 
-**File:** `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/client/int21h.asm:45-1494`
+**File:** `dos32a/src/dos32a/text/client/int21h.asm:45-1494`
 
 Entry:
 ```
@@ -155,7 +155,7 @@ For DOOM running under 4GW initially: at the moment `init_system` runs, the prev
 DOS/32A also calls `INT 31h AX=0202h` (Get PM Exception Vector) for exceptions 0-14 (`dos32a.asm:367-374`) into `_exc_tab`. Exception chain mechanism exists but is unlikely to be on the fault path.
 
 **Crucially: there is NO source-level loop that installs 256 PM vectors via AX=0205h.** The DOS/32A source's `install_client_ints` installs only 4 (10h, 21h, 23h, 33h). The trace shows 256 vectors being installed to `0xFF:4*N` — this loop must live in either:
-- The DOS/32A binder/stub (`/Users/chelsonaitcheson/Projects/dos32a/src/stub32a/`) — likely candidate
+- The DOS/32A binder/stub (`dos32a/src/stub32a/`) — likely candidate
 - Or an unmapped DOS/32A source file
 - Or pre-installed by 4GW before DOS/32A loaded (CS=0xCF early installs at lines 178-225 of the trace match this pattern, but for the 4GW segment, not 0xFF)
 
@@ -255,7 +255,7 @@ Candidate 4 is interesting and brings H6-broad back from the dead: **the PM stac
 
 ## Session 34 plan
 
-1. **Read `stub32a/` source** (`/Users/chelsonaitcheson/Projects/dos32a/src/stub32a/`) to find:
+1. **Read `stub32a/` source** (`dos32a/src/stub32a/`) to find:
    - The 256-PM-vector install loop (where DOS/32A installs `pm_vectors[N] = 0xFF:4*N`)
    - Any other paths to `int_main` (especially direct PM JMPs)
    - How `rmstacktop` is initialized under DPMI-client mode
@@ -270,11 +270,11 @@ Candidate 4 is interesting and brings H6-broad back from the dead: **the PM stac
 
 ## Reference paths
 
-- `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/kernel/intr.asm:43-210` — int_matrix, int_main
-- `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/kernel/exit.asm:44-77` — int21h_pm with `jmp int_matrix+4*21h`
-- `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/client/int21h.asm:45-1494` — _int21 with @__go21 chain
-- `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/text/client/misc.asm:279-301` — install_client_ints (installs 10h/21h/23h/33h only)
-- `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/dos32a.asm:337-376` — init_system (saves previous handlers via AX=0204h)
-- `/Users/chelsonaitcheson/Projects/dos32a/src/stub32a/` — **session 34 target** for the 256-vector loop and rmstacktop init
+- `dos32a/src/dos32a/text/kernel/intr.asm:43-210` — int_matrix, int_main
+- `dos32a/src/dos32a/text/kernel/exit.asm:44-77` — int21h_pm with `jmp int_matrix+4*21h`
+- `dos32a/src/dos32a/text/client/int21h.asm:45-1494` — _int21 with @__go21 chain
+- `dos32a/src/dos32a/text/client/misc.asm:279-301` — install_client_ints (installs 10h/21h/23h/33h only)
+- `dos32a/src/dos32a/dos32a.asm:337-376` — init_system (saves previous handlers via AX=0204h)
+- `dos32a/src/stub32a/` — **session 34 target** for the 256-vector loop and rmstacktop init
 - `docs/research/32-doom-gp-investigation.md` — open-bug journal (read this first for context)
 - `docs/research/37-dos4gw-internals.md` — sister doc on DOS/4GW (the other extender loaded simultaneously)

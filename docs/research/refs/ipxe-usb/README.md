@@ -2,7 +2,7 @@
 
 Status: research reference only (no code from here lands in pinecore-x86; we study principles and write original per CONTRIBUTING.md rule #3).
 
-Source cache: **`/Users/chelsonaitcheson/Projects/ipxe-usb-ref/src/drivers/usb/`** + **`/Users/chelsonaitcheson/Projects/ipxe-usb-ref/src/include/ipxe/{usb,xhci}*.h`**
+Source cache: **`ipxe-usb-ref/src/drivers/usb/`** + **`ipxe-usb-ref/src/include/ipxe/{usb,xhci}*.h`**
 
 Pinned to: master at clone time (2026-05-27 — recapture commit SHA before any contribution work).
 
@@ -182,7 +182,7 @@ For a DOS-side or pinecore Ring-0 environment, **iPXE is the right reference**. 
 ## How to refresh the clone
 
 ```
-cd /Users/chelsonaitcheson/Projects/ipxe-usb-ref
+cd ipxe-usb-ref
 git fetch origin
 git checkout origin/master
 # sparse-checkout patterns are persistent — already set to USB-only
@@ -190,7 +190,7 @@ git checkout origin/master
 
 To expand the sparse-checkout (e.g. to include `src/include/ipxe/pci.h` for cross-reference):
 ```
-cd /Users/chelsonaitcheson/Projects/ipxe-usb-ref
+cd ipxe-usb-ref
 git sparse-checkout add "src/include/ipxe/pci*"
 git read-tree -mu HEAD
 ```

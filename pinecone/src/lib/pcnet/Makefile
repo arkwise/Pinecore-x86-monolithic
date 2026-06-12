@@ -10,7 +10,7 @@
 #
 # DJGPP_PATH may be overridden from the parent Makefile.
 
-DJGPP_PATH ?= /Users/chelsonaitcheson/Projects/djgpp_12
+DJGPP_PATH ?= /opt/djgpp
 
 CC     := $(DJGPP_PATH)/bin/i586-pc-msdosdjgpp-gcc
 AR     := $(DJGPP_PATH)/bin/i586-pc-msdosdjgpp-ar

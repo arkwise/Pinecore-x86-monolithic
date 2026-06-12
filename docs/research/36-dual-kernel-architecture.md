@@ -24,7 +24,7 @@ handlers are part of the FreeDOS kernel that FREECOM depends on.
 ### Pure Pinecore Kernel (`kernel-pure`)
 
 - **Boot:** Standalone bootloader (PINE.COM or direct multiboot)
-- **Shell:** Built-in Pinecore shell (no FREECOM dependency)
+- **Shell:** Built-in Pinecore Commando (no FREECOM dependency)
 - **32-bit native:** Runs entirely in protected mode from boot
 - **V86 for DOS:** Creates V86 tasks for real-mode DOS compatibility
 - **DPMI/VCPI:** Full PM app support — DOOM, Quake, etc.

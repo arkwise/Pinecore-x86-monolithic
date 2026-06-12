@@ -13,7 +13,7 @@ Currently Pinecore is single-tasking: COMMAND.COM runs in V86 mode and blocks ev
 
 1. **Preemptive scheduling** — the PIT timer fires every 10ms and forcibly switches tasks
 2. **Context switching** — save/restore complete CPU state per task
-3. **Multiple task types** — kernel-mode tasks (Pinecore shell) and V86 tasks (COMMAND.COM)
+3. **Multiple task types** — kernel-mode tasks (Pinecore Commando) and V86 tasks (COMMAND.COM)
 4. **Per-task resources** — stack, screen buffer, keyboard queue, file handles
 
 Once achieved: Pinecore is a real preemptive multitasking monolithic kernel.
@@ -192,7 +192,7 @@ When a V86 task (COMMAND.COM) is running and the timer fires:
 
 ### How Kernel Tasks Are Preempted
 
-Kernel tasks (Pinecore shell) run at Ring 0:
+Kernel tasks (Pinecore Commando) run at Ring 0:
 1. Timer fires while in Ring 0
 2. CPU pushes EFLAGS + CS:EIP (NO privilege change, NO extra segments)
 3. Our ISR stub pushes general registers
@@ -251,7 +251,7 @@ char keyboard_getchar_blocking(int vt) {
 1. **Task Control Block + task_create/task_destroy** — basic task lifecycle
 2. **Software context switch** — save/restore ESP in timer ISR
 3. **Scheduler** — round-robin task selection
-4. **Kernel task support** — Pinecore shell runs as a schedulable task
+4. **Kernel task support** — Pinecore Commando runs as a schedulable task
 5. **V86 task integration** — existing V86 tasks become schedulable
 6. **Blocked state + keyboard unblocking** — I/O wait without busy-spin
 7. **Per-task TSS.ESP0** — correct Ring 3→0 transition per task

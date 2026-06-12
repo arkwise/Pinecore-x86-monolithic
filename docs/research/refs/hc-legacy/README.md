@@ -124,7 +124,7 @@ OHCI's design point: **hardware does more of the scheduling work** than UHCI. Dr
 **For our work:**
 - USBDDOS implements EHCI in `HCD/ehci.c` (853 LOC). The TODO note "EHCI isochronous not implemented" (open TODO #2) refers to the iTD/siTD scheduling — the existing code handles bulk/interrupt/control fine.
 - Phase B.2 in `48-` is the EHCI isoc fix. Sections to read: Periodic Frame List structure, iTD layout, siTD layout, Section 5 schedule activation.
-- iPXE EHCI driver (2,098 LOC) at `/Users/chelsonaitcheson/Projects/ipxe-usb-ref/src/drivers/usb/ehci.c` is the cross-reference.
+- iPXE EHCI driver (2,098 LOC) at `ipxe-usb-ref/src/drivers/usb/ehci.c` is the cross-reference.
 
 ---
 

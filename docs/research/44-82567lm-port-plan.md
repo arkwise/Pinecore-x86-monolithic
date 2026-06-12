@@ -356,7 +356,7 @@ These get added to our serial-log discipline; the existing `grep` patterns in SE
 - `22-rtl8139-nic.md`, `23-ne2000-nic.md` — prior chip-level NIC research
 
 ### External
-- Linux v6.6 e1000e (local: `/Users/chelsonaitcheson/Projects/linux-e1000e-ref/`)
+- Linux v6.6 e1000e (local: `linux-e1000e-ref/`)
 - mTCP: <https://www.brutman.com/mTCP/>
 - Watt-32: <https://github.com/gvanem/Watt-32>
 - Crynwr packet drivers: <https://github.com/fragglet/crynwr_mirror>

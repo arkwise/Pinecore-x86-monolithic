@@ -1,6 +1,6 @@
 # HDPMI — DPMI Server Internals (digest)
 
-> **Status:** REFERENCE — mirrored from Japheth's HX project (`/Users/chelsonaitcheson/Projects/HX/Src/`) on 2026-05-26, identical to upstream `github.com/Baron-von-Riedesel/HX`. Plain-text source preserved as-is at `docs/research/refs/hdpmi/`.
+> **Status:** REFERENCE — mirrored from Japheth's HX project (`HX/Src/`) on 2026-05-26, identical to upstream `github.com/Baron-von-Riedesel/HX`. Plain-text source preserved as-is at `docs/research/refs/hdpmi/`.
 >
 > **Why this is in our tree:** HDPMI is the most authoritative reference DPMI host we have access to. It conforms to DPMI 0.9 and implements most of DPMI 1.0, has been continuously maintained 1993-2025 (current v3.24), and ships with an unusually frank technical manual (`HDPMI.TXT`, 934 lines) plus a 25-year history file documenting every quirk and fix. Our `reference_dos_extender_sources` memory already names HDPMI as the first place to mine for INT 31h dispatch behaviour; this brings the prose docs alongside the assembly sources at `HX/Src/HDPMI/*.ASM`.
 
@@ -302,6 +302,6 @@ Cherry-picked from 948 lines — items that touch behaviours we've been debuggin
 
 ## Provenance
 
-- Source: local clone at `/Users/chelsonaitcheson/Projects/HX/Src/{HDPMI,JHDPMI,SHDPMI,DPMI,DPMILDR}/`, verified identical to upstream `github.com/Baron-von-Riedesel/HX@master`.
+- Source: local clone at `HX/Src/{HDPMI,JHDPMI,SHDPMI,DPMI,DPMILDR}/`, verified identical to upstream `github.com/Baron-von-Riedesel/HX@master`.
 - Mirrored: 2026-05-26. All 13 text files preserved verbatim — no conversion needed.
 - License: HX is freeware, "may be used for any purpose. Copyright Japheth 1993-2020." (`HDPMI.TXT` §10).

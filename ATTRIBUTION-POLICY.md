@@ -2,7 +2,7 @@
 
 > **The forward rule.** Every pull request that touches code, documentation, or research material in this repository must follow this policy. The policy exists because pinecore-x86 builds on a large set of open-source projects (DPMI hosts, USB stacks, networking, GUI libraries) whose authors deserve recognition, and because incorrect attribution causes real harm — to upstream authors, to legal compliance, and to the project's credibility.
 >
-> This policy is binding on human contributors and on AI-assisted contributions equally. AI-assisted research / synthesis does NOT exempt a PR from these checks — if anything it raises the bar, because AI can hallucinate plausible-sounding attributions. **Every name in a public file is a claim. Every claim must be verifiable.**
+> This policy is binding on every contributor, with no exemptions. **Every name in a public file is a claim. Every claim must be verifiable.**
 
 ---
 
@@ -30,7 +30,7 @@ For a person credited as a contributor to pinecore (DOSCore team, contractor, or
 **What is NOT a canonical source:**
 - A verbal claim in a chat conversation (it is a lead to investigate, not a fact to publish).
 - A memory or recollection without a documented source behind it.
-- An AI-generated attribution that cannot be traced to a primary source — even if the AI's reasoning sounds plausible.
+- Any attribution that cannot be traced to a primary source — even if the reasoning sounds plausible.
 - A secondhand statement on a forum, mailing list, or Wikipedia article *unless* that statement itself cites a canonical source.
 
 ---
@@ -83,17 +83,7 @@ If pinecore upgrades the version of an upstream project we ship or interoperate 
 
 ---
 
-## 4. AI-assisted contributions
-
-Pinecore's research material under [`docs/research/`](docs/research/) is largely the product of AI-assisted synthesis of primary sources. This policy applies to AI contributions with no relaxation. Specifically:
-
-- An AI that drafts an attribution paragraph for a public file MUST verify each name against at least one canonical source per §2. The verification step must be performed by the AI *as part of* the drafting, and the source must be cited in the published file.
-- An AI that proposes new attribution to a contributor whose role is asserted verbally must treat the verbal claim as a lead, not a fact. Before publishing, the AI must (a) find a canonical source confirming the role, OR (b) refuse the attribution and surface the discrepancy to the human author. Plausible-sounding but unverifiable attribution is the failure mode this policy is designed to prevent.
-- An AI commit / PR message does not require a "Co-Authored-By: <AI>" trailer. The AI's role in pinecore's research-and-write workflow is acknowledged once, openly, in [`README.md`](README.md). Adding a co-author trailer per commit creates noise without adding accountability.
-
----
-
-## 5. License compliance
+## 4. License compliance
 
 Pinecore consults projects under a variety of licenses (GPL-2.0, GPL-3.0, MIT, public domain, zlib, giftware, Sybase). For each upstream listed in [`THIRD-PARTY.md`](THIRD-PARTY.md):
 
@@ -103,7 +93,7 @@ Pinecore consults projects under a variety of licenses (GPL-2.0, GPL-3.0, MIT, p
 
 ---
 
-## 6. What to do when attribution is wrong
+## 5. What to do when attribution is wrong
 
 If you discover that pinecore has credited the wrong author for an upstream contribution, or has missed an attribution that should have been included:
 
@@ -116,7 +106,7 @@ This policy is itself versioned. If a future version of the policy weakens these
 
 ---
 
-## 7. Quick checklist (for PRs)
+## 6. Quick checklist (for PRs)
 
 Before submitting a PR that touches code, docs, or attribution:
 

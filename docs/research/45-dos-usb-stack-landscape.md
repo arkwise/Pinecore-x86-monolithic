@@ -19,7 +19,7 @@ DOS predates USB by half a decade — there is no "DOS USB" in the OS itself. Ev
 
 ### 2.1 USBDDOS — maintainer `crazii` (GPLv2, on disk)
 
-- **Source:** <https://github.com/crazii/USBDDOS> — verified 2026-05-26. Local clone `/Users/chelsonaitcheson/Projects/USBDDOS-master/`.
+- **Source:** <https://github.com/crazii/USBDDOS> — verified 2026-05-26. Local clone `USBDDOS-master/`.
 - **License:** GNU GPL v2 (see local `COPYING`; confirmed on GitHub repo page).
 - **Status:** Active again. 101 stars, 15 open issues, 2 open PRs (as of 2026-05-26). Last official release v1.0fix2 (Dec 2023). Upstream was dormant Feb 2024 → May 2026; **between May 13-15 2026, maintainer merged 9 PRs (#22-#30) from a community fork `Netrunner01/USBDDOS`** that added OHCI bug fixes for legacy chipsets (NEC µPD720101, ALi M5237, SiS 7001, OPTi 82C861). This establishes a recent precedent for community contributions getting merged.
 - **Active community fork:** <https://github.com/Netrunner01/USBDDOS> — research-driven OHCI-focused fork; its work has been incorporated upstream (per fork's own README, "code-side mission is therefore complete"). Useful as a model for what well-shaped contributions look like.
@@ -183,8 +183,8 @@ The OptiPlex 780 has the advantage of running *both* a planned NIC bring-up (825
 ## 10. References
 
 ### Local
-- `/Users/chelsonaitcheson/Projects/USBDDOS-master/` — full USBDDOS source (GPLv2)
-- `/Users/chelsonaitcheson/Projects/linux-ref/drivers/usb/host/` — Linux v6.6 USB host controllers (sparse-checkout)
+- `USBDDOS-master/` — full USBDDOS source (GPLv2)
+- `linux-ref/drivers/usb/host/` — Linux v6.6 USB host controllers (sparse-checkout)
 
 ### Upstream
 - USBDDOS: <https://github.com/crazii/USBDDOS> — **verified 2026-05-26**, GPLv2, 101 stars, recently active (PRs #22-#30 merged May 13-15 2026)

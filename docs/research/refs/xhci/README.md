@@ -1,6 +1,6 @@
 # Intel xHCI 1.2 specification — local digest
 
-Local cache: **`/Users/chelsonaitcheson/Projects/pinecore-x86/docs/research/refs/xhci/xhci-spec-intel.pdf`**
+Local cache: **`docs/research/refs/xhci/xhci-spec-intel.pdf`**
 
 - **Title:** eXtensible Host Controller Interface for Universal Serial Bus (xHCI)
 - **Revision:** 1.2 (May 2019) — current stable

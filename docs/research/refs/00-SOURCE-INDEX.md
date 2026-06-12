@@ -123,9 +123,9 @@
 | CWSDPMI r7 control.c | Source code | GDT/LDT/TSS init, DPMIstartup | ch-29 |
 | CWSDPMI r7 gdt.h/tss.h | Source code | Descriptor layout, selector macros | ch-29 |
 | HDPMI (HX) I31*.ASM dispatchers | Source code | Reference impl of full 0.9 + 1.0 INT 31h surface; the dispatch-table layout to mirror | ch-29 |
-| → `/Users/chelsonaitcheson/Projects/HX/Src/HDPMI/` | | | |
+| → `HX/Src/HDPMI/` | | | |
 | DOS/32A kernel.asm + loader.asm | Source code | Client-side reference — what a DOS/4GW-class extender expects from a host | ch-29, ch-30 |
-| → `/Users/chelsonaitcheson/Projects/dos32a/src/dos32a/` | | | |
+| → `dos32a/src/dos32a/` | | | |
 | IBM OS/2 LE Module Format | Specification | LE header, objects, pages, fixups | ch-30 |
 | DOS/4GW documentation | Manual | DOS extender behavior, flat model setup | ch-30, ch-31 |
 
@@ -133,9 +133,9 @@
 
 | Source | Location | Covers | Used In |
 |--------|----------|--------|---------|
-| USBDDOS v1.0fix2 (crazii) | `/Users/chelsonaitcheson/Projects/USBDDOS-master/` | UHCI/OHCI/EHCI + HID/MSC/HUB/CDC class drivers, GPLv2 | ch-45, ch-46, ch-48 |
-| iPXE USB (sparse) | `/Users/chelsonaitcheson/Projects/ipxe-usb-ref/src/drivers/usb/` | xHCI + UHCI + EHCI + class drivers, GPLv2/UBDL | ch-47, refs/ipxe-usb |
-| Linux v6.6 USB host (sparse) | `/Users/chelsonaitcheson/Projects/linux-ref/drivers/usb/host/` | xHCI reference, quirks | ch-47 |
+| USBDDOS v1.0fix2 (crazii) | `USBDDOS-master/` | UHCI/OHCI/EHCI + HID/MSC/HUB/CDC class drivers, GPLv2 | ch-45, ch-46, ch-48 |
+| iPXE USB (sparse) | `ipxe-usb-ref/src/drivers/usb/` | xHCI + UHCI + EHCI + class drivers, GPLv2/UBDL | ch-47, refs/ipxe-usb |
+| Linux v6.6 USB host (sparse) | `linux-ref/drivers/usb/host/` | xHCI reference, quirks | ch-47 |
 | Intel xHCI 1.2 spec | `refs/xhci/xhci-spec-intel.pdf` (645 pp) | THE xHCI authoritative reference (register, TRB, contexts, BIOS handoff) | ch-47, refs/xhci |
 | UHCI 1.1 spec | `refs/hc-legacy/uhci-1.1-spec.pdf` (47 pp) | UHCI registers, TDs, QHs, frame list | ch-46, refs/hc-legacy |
 | OHCI 1.0a spec | `refs/hc-legacy/ohci-1.0a-spec.pdf` (160 pp) | OHCI HCCA, EDs, TDs, port management — cited by Netrunner01 "Gap N" PRs | ch-46, refs/hc-legacy |

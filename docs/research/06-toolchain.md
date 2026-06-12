@@ -11,7 +11,7 @@
 
 ### DJGPP Limitations for Bare Metal
 
-Investigated the DJGPP toolchain at `/Users/chelsonaitcheson/Projects/djgpp_10/`:
+Investigated the DJGPP toolchain at `/opt/djgpp/`:
 
 **Target:** `i586-pc-msdosdjgpp` — hardcoded to DOS DPMI target
 

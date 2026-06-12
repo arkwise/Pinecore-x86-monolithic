@@ -122,7 +122,7 @@ The Reference Manual is the developer-facing technical specification: how every 
 | K-19 | PS/2 mouse | `docs/kernel/mouse.md` | Packet decode, position state, bounds | STUB | `mouse.c` | 13 |
 | K-20 | Serial / COM1 | `docs/kernel/serial.md` | 16550 UART for debug log | STUB | `serial.c` | 24 |
 | K-21 | Virtual terminals | `docs/kernel/vt.md` | 6 VTs, per-VT keyboard + screen buffer, status bar | STUB | `vt.c` | 17 |
-| K-22 | Pinecore shell ("Commando") | `docs/kernel/shell.md` | Per-task shell, 12 commands, history, EXEC arbitrary DOS apps | STUB | `shell.c` | 17 |
+| K-22 | Pinecore Commando | `docs/kernel/shell.md` | Per-task shell, 12 commands, history, EXEC arbitrary DOS apps | STUB | `shell.c` | 17 |
 | K-23 | First-boot setup | `docs/kernel/setup.md` | PCORE.CFG persistence, layout, country | STUB | `setup.c`, `config.c` | — |
 | K-24 | PCI bus | `docs/kernel/pci.md` | Mech-1 config space, BAR decode, device enumeration | STUB | `pci.c` | 20 |
 | K-25 | Module loader (.kmd) | `docs/kernel/modules.md` | ELF32 loader, .kexport, R_386_* relocations, GPL gate, multi-pass autoload | STUB | `module.c`, `module.h` | — |

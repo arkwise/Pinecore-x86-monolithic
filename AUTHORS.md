@@ -72,9 +72,9 @@ Canonical contributors per [`arkwise/auragui`](https://github.com/arkwise/auragu
 
 ---
 
-## AI-assisted research synthesis
+## Research synthesis
 
-Reference materials — Intel manuals (386 PRM, current SDM), DPMI 0.9/1.0 specifications, USB 2.0/HID/MSC specifications, EHCI/OHCI/UHCI/xHCI specifications, and the source code of permissively- or GPL-licensed reference implementations listed above — were synthesized into the project's research chapters under [`docs/research/`](docs/research/) with AI assistance. Every line of code in this repository is original work written from primary sources and reviewed by human authors. The AI's role was reference-material discovery, synthesis, and cross-referencing; no upstream code was copied. See [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md) for the forward rule.
+Reference materials — Intel manuals (386 PRM, current SDM), DPMI 0.9/1.0 specifications, USB 2.0/HID/MSC specifications, EHCI/OHCI/UHCI/xHCI specifications, and the source code of permissively- or GPL-licensed reference implementations listed above — were synthesized into the project's research chapters under [`docs/research/`](docs/research/). Every line of code in this repository is original work written from primary sources and reviewed by human authors; no upstream code was copied. See [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md) for the forward rule.
 
 ---
 

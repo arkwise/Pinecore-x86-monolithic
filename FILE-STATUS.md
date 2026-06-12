@@ -51,7 +51,7 @@
 | `docs/research/14-v86-monitor.md` | STABLE | 2026-04-28 | GPF handler dispatch, instruction emulation with code |
 | `docs/research/15-vesa-init.md` | STABLE | 2026-04-28 | VBE calls, MODE_INFO fields, PhysBasePtr at 0x28 |
 | `docs/research/16-dos-boot-stub.md` | ACTIVE | 2026-04-30 | PINE.COM stub, PM transition from DOS, return-to-DOS |
-| `docs/research/17-virtual-terminals.md` | ACTIVE | 2026-04-30 | VT system, Pinecore shell, per-VT buffers + keyboard |
+| `docs/research/17-virtual-terminals.md` | ACTIVE | 2026-04-30 | VT system, Pinecore Commando, per-VT buffers + keyboard |
 | `docs/research/18-preemptive-multitasking.md` | ACTIVE | 2026-04-30 | Scheduler, context switching, task model, blocked I/O |
 | `docs/research/19-floppy-controller.md` | ACTIVE | 2026-05-01 | FDC driver, DMA channel 2, sector read protocol |
 | `docs/research/20-pci-bus.md` | ACTIVE | 2026-05-02 | PCI config space, BAR decode, enumeration algorithm |
@@ -84,7 +84,6 @@
 | `docs/research/refs/ipxe-usb/` | STABLE | 2026-05-27 | iPXE USB stack structural map. Pointer to `~/Projects/ipxe-usb-ref/` sparse-checkout. xhci.c (3,571 LOC) function-by-function index — primary structural reference for our xHCI port. License GPL2_OR_LATER_OR_UBDL. |
 | `docs/research/refs/dos32a/` | STABLE | 2026-05-26 | 232 markdown pages mirrored from `http://146.190.13.172/pub/dos32a/htm/`. Tree mirrors source: `gnrl/`, `user/`, `prog/{int10h,int21h,int31h,int33h}/`, `tech/`, `libr/`, `util/`. |
 | `docs/research/refs/hdpmi/` | STABLE | 2026-05-26 | 13 plain-text files from Japheth's HX tree (HDPMI, JHDPMI, SHDPMI, DPMI, DPMILDR). HDPMI.TXT is the authoritative manual. HDPMIHIS.TXT is a 25-year DPMI-quirk archaeology source. REGRESSION-32.TXT is a 90-test parity catalogue. |
-| `docs/ref/AI-REFERENCE.md` | ACTIVE | 2026-04-28 | 10 domain sections, fully populated from ch-01 to ch-15 |
 | `docs/ref/HANDBOOK.md` | PLANNED | — | |
 | `docs/design/ARCHITECTURE.md` | ACTIVE | 2026-04-28 | Needs rewrite for kernel approach |
 | `docs/research/refs/00-SOURCE-INDEX.md` | STABLE | 2026-04-28 | 8 categories, covers all 15 chapters |
@@ -116,7 +115,7 @@
 | `src/include/sched.h` | ACTIVE | 2026-05-01 | Scheduler API |
 | `src/kernel/vt.c` | ACTIVE | 2026-05-01 | Virtual terminal manager, 6 VTs, status bar |
 | `src/include/vt.h` | ACTIVE | 2026-05-01 | VT API |
-| `src/kernel/shell.c` | ACTIVE | 2026-05-01 | Pinecore Shell, 12 commands, history |
+| `src/kernel/shell.c` | ACTIVE | 2026-05-01 | Pinecore Commando, 12 commands, history |
 | `src/include/shell.h` | ACTIVE | 2026-05-01 | Shell API |
 | `src/boot/pine.asm` | ACTIVE | 2026-05-02 | PINE.COM FreeDOS boot stub, BSS boundary 0x14000 |
 | `pinecore-dist.img` | ACTIVE | 2026-05-02 | FreeDOS boot floppy + dual-boot menu (A:/C:) |
@@ -153,7 +152,7 @@
 | `src/kernel/idt.c` | ACTIVE | 2026-05-27 | IRET-frame validator + dispatcher. **Ses38** — kernel-side PIC EOI after PM IRQ delivery (`idt.c:347-365`): when `dpmi_deliver_pm_irq` returns 0, we `pic_eoi(irq)` before IRETD into the client. Workaround for the s37 stall: Allegro's IRQ wrapper relies on its C handler (`fixed_timer_handler`) to `outportb(0x20, 0x20)`, but that OUT silently fails under our host (IOPL=3 is set, EFLAGS log shows `efl=0x213297`, so privilege is correct — root cause unknown). Allegro's tail-EOI becomes a harmless no-op in steady state. Also added rate-limited PMIRQ entry log (`idt.c:328-374`, first 30 hits unconditional + every 16th per-vector after) dumping {vector, hit count, master/slave ISR+IMR, frame->cs:eip, has_handler}. Ses35: added Ring-0 #PF demand-pager hook (~`idt.c:280`) — when a kernel-mode #PF fires with P=0 and CR2 ∈ DPMI zone, calls `dpmi_kernel_pf_commit`; on success, retries the faulting instruction. Anything else (other vectors, ring-3 from kernel CS, real present faults, CR2 outside the zone) falls through to the normal exception path. Ses28+: validator skips LDT check on V86 frames, now also verifies P/S/X/DPL on PM ring-3 CS and dumps the 8 descriptor bytes when bad. Fatal-exception handler decodes #GP error-code selector and dumps the offending LDT entry. RTC IRQ no longer delivered as PM INT 0x28. Scheduler diag dump on every SAMPLE event. |
 | `src/kernel/sched.c` | ACTIVE | 2026-05-22 | Scheduler. Ses28+: `sched_diag_dump()` for task-state diagnosis (id/name/state/block reason/v86_task_id). Ses27: sched_create_v86_exec helper, dpmi_release_client_for_v86 called on v86_exit. |
 | `src/include/sched.h` | ACTIVE | 2026-05-22 | Ses28+: sched_diag_dump() prototype. Ses27: struct task adds exec_binary[64] + exec_args[64]. |
-| `src/kernel/shell.c` | ACTIVE | 2026-05-22 | Pinecore Shell 0.2.0. Per-task shell_vt, banner, paginated help, ps, uname, EXEC arbitrary DOS apps |
+| `src/kernel/shell.c` | ACTIVE | 2026-05-22 | Pinecore Commando 0.2.0. Per-task shell_vt, banner, paginated help, ps, uname, EXEC arbitrary DOS apps |
 | `src/include/sched.h` | ACTIVE | 2026-05-22 | struct task adds exec_binary[64] + exec_args[64] |
 | `src/kernel/sched.c` | ACTIVE | 2026-05-22 | sched_create_v86_exec helper, dpmi_release_client_for_v86 called on v86_exit |
 | `src/kernel/vt.c` | ACTIVE | 2026-05-27 | vt_create_dos_exec for arbitrary-binary DOS VT. **Ses39 — public `vt_repaint()`** (cli, `vga_restore(active_vt->screen, cursor_x, cursor_y)`, `draw_status_bar()`, sti). Called by `dpmi.c`'s PM-exit cleanup after `vbe_set_text_mode + vga_set_mode_03h` to repaint the FreeCOM shell's screen content from the VT's in-memory buffer back to 0xB8000. |

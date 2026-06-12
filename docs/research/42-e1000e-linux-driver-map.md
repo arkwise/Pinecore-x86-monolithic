@@ -1,6 +1,6 @@
 # 42 — Linux e1000e driver structural map (for 82567LM-3 port)
 
-Status: research only (no code). Source-of-truth: a sparse-checkout of Linux v6.6 at `/Users/chelsonaitcheson/Projects/linux-e1000e-ref/drivers/net/ethernet/intel/e1000e/`. Every `file:line` citation below was line-verified against that tree on 2026-05-26.
+Status: research only (no code). Source-of-truth: a sparse-checkout of Linux v6.6 at `linux-e1000e-ref/drivers/net/ethernet/intel/e1000e/`. Every `file:line` citation below was line-verified against that tree on 2026-05-26.
 
 Companion docs:
 - `41-intel-82567lm-nic.md` — chip-level register surface

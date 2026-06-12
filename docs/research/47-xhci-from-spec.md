@@ -9,7 +9,7 @@ Companion docs:
 
 Primary references:
 - **Intel xHCI 1.2 specification** (free PDF from Intel) — the authoritative document for the controller
-- **Linux v6.6** `drivers/usb/host/xhci*.c` — local sparse-checkout at `/Users/chelsonaitcheson/Projects/linux-ref/drivers/usb/host/`, ~18,000 LOC across `xhci.c` (5,404), `xhci.h` (2,815), `xhci-ring.c` (4,399), `xhci-mem.c` (2,463), `xhci-hub.c` (1,998), `xhci-pci.c` (1,006), plus debug/quirk files.
+- **Linux v6.6** `drivers/usb/host/xhci*.c` — local sparse-checkout at `linux-ref/drivers/usb/host/`, ~18,000 LOC across `xhci.c` (5,404), `xhci.h` (2,815), `xhci-ring.c` (4,399), `xhci-mem.c` (2,463), `xhci-hub.c` (1,998), `xhci-pci.c` (1,006), plus debug/quirk files.
 
 License: Linux is GPLv2. Per CONTRIBUTING.md rule #3 we study principles and write original code.
 
@@ -362,7 +362,7 @@ For v1 we ship with **zero quirks**. As bring-up boards reveal bugs, we add quir
 - USB 3.2 spec (USB-IF): <https://www.usb.org/document-library/usb-32-revision-11-june-2022>
 - USB 2.0 spec (USB-IF): <https://www.usb.org/document-library/usb-20-specification>
 
-### Linux source (v6.6, local at `/Users/chelsonaitcheson/Projects/linux-ref/drivers/usb/host/`)
+### Linux source (v6.6, local at `linux-ref/drivers/usb/host/`)
 - `xhci.c` (5,404 LOC) — init, reset, run/stop, top-level lifecycle
 - `xhci.h` (2,815 LOC) — all register/struct/TRB-type definitions
 - `xhci-ring.c` (4,399 LOC) — ring management, ISR, event handling

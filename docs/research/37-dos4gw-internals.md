@@ -736,7 +736,7 @@ Before adding any handler, get more telemetry. In
    condition is — if it's `cmp ax, 0x...` then we know what AX
    value to return.
 
-**File:** `/Users/chelsonaitcheson/Projects/dos-desktop/src/kernel/dpmi.c`
+**File:** `src/kernel/dpmi.c`
 **Approximate line:** 2246 (existing dump code) — extend it.
 
 ### 8.2 Implement INT 31h/000Dh (Allocate Specific LDT Descriptor) (HIGH)
@@ -746,7 +746,7 @@ Without it, the auto-LDT cascade may be a side-effect of failed
 000Dh calls returning CF=1, which DOS/4GW then converts to
 "allocate any free slot" via 0000h.
 
-**File:** `/Users/chelsonaitcheson/Projects/dos-desktop/src/kernel/dpmi.c`
+**File:** `src/kernel/dpmi.c`
 **Insert after:** the `case 0x0001:` block, around dpmi.c:480
 **Code:** see §7.1.
 
@@ -787,7 +787,7 @@ switch (vector) {
 }
 ```
 
-**File:** `/Users/chelsonaitcheson/Projects/dos-desktop/src/kernel/dpmi.c:2228`
+**File:** `src/kernel/dpmi.c:2228`
 
 ### 8.5 Trace 0205h calls and confirm DOS/4GW hooks INT 0x8F (MEDIUM)
 
@@ -818,7 +818,7 @@ via 0205h, reflect to the RM IVT. Today we EOI-and-drop, which is
 fine for DOOM (it hooks everything it cares about) but breaks
 generic DOS-extended apps.
 
-**File:** `/Users/chelsonaitcheson/Projects/dos-desktop/src/kernel/idt.c`
+**File:** `src/kernel/idt.c`
 (or wherever IRQ dispatch lives). **Out of scope for the current
 DOOM bringup.**
 
@@ -896,7 +896,7 @@ This avoids spurious early timer interrupts during 4GW init.
 | STANISLAVS-INTS | HelpPC interrupt table | <https://stanislavs.org/helppc/int_table.html> |
 | CTYME-INT8F | RBIL HTML, INT 8F page | <https://www.ctyme.com/intr/int-8f.htm> |
 | DOOM-LINUX | id Software Linux DOOM source | <https://github.com/id-Software/DOOM/tree/master/linuxdoom-1.10> |
-| pinecore: dpmi.c | Local DPMI host implementation | /Users/chelsonaitcheson/Projects/dos-desktop/src/kernel/dpmi.c |
+| pinecore: dpmi.c | Local DPMI host implementation | src/kernel/dpmi.c |
 | pinecore-trace | Live serial output captured during DOS/4GW init | session 18 logs |
 
 ---

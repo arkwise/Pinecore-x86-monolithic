@@ -109,7 +109,7 @@ This is the one tricky part. We're a DOS program that needs to become Ring 0.
 
 ## FREECOM I/O Patterns (from source analysis)
 
-FREECOM at `/Users/chelsonaitcheson/Projects/freecom-master/` uses:
+FREECOM at `freecom-master/` uses:
 
 **Output (what we need to capture in V86):**
 | Method | INT | Function | What It Does |
