@@ -1997,7 +1997,7 @@ static unsigned long g_progress_anim = 0;
 static const char *const g_tabs[] = { "Controls", "Form", "Files" };
 
 static const char *const g_country_items[] = {
-    "Vanuatu", "Australia", "New Zealand", "United States", "Other"
+    "Canada", "Australia", "New Zealand", "United States", "Other"
 };
 static const char *const g_mode_items[] = {
     "VGA 320x200x8",

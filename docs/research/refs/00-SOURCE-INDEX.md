@@ -6,10 +6,10 @@
 
 | Source | Location | Covers | Used In |
 |--------|----------|--------|---------|
-| 386 Bible Ch.5 | i386-bible/pages/page_0091-0105 | Memory management, paging, page tables | ch-01, AI-REF [I386] |
+| 386 Bible Ch.5 | i386-bible/pages/page_0091-0105 | Memory management, paging, page tables | ch-01 |
 | 386 Bible Ch.6 | i386-bible/pages/page_0106-0129 | Protection, privilege levels, call gates | ch-01 |
-| 386 Bible Ch.7 | i386-bible/pages/page_0130-0144 | Multitasking, TSS, task gates, context switching | ch-01, AI-REF [I386] |
-| 386 Bible Ch.15 | i386-bible/pages/page_0217-0223 | Virtual 8086 mode | ch-02, AI-REF [I386] |
+| 386 Bible Ch.7 | i386-bible/pages/page_0130-0144 | Multitasking, TSS, task gates, context switching | ch-01 |
+| 386 Bible Ch.15 | i386-bible/pages/page_0217-0223 | Virtual 8086 mode | ch-02 |
 | 386 Bible Ch.14 | i386-bible/pages/page_0207-0210 | Real-address mode | ch-02 |
 | 386 Bible Ch.16 | i386-bible/pages/page_0224-0235 | Mixing 16-bit and 32-bit code | ch-02 |
 
@@ -17,9 +17,9 @@
 
 | Source | Location | Covers | Used In |
 |--------|----------|--------|---------|
-| CWSDPMI tss.h | cwsdpmi-master/src/tss.h | TSS structure, 4 instances | ch-01, ch-03, AI-REF [DPMI] |
+| CWSDPMI tss.h | cwsdpmi-master/src/tss.h | TSS structure, 4 instances | ch-01, ch-03 |
 | CWSDPMI mswitch.asm | cwsdpmi-master/src/mswitch.asm | Mode switching, task gates, cpumode() | ch-01, ch-02, ch-03 |
-| CWSDPMI exphdlr.c | cwsdpmi-master/src/exphdlr.c | DPMI INT 31h handler, all services | ch-03, AI-REF [DPMI] |
+| CWSDPMI exphdlr.c | cwsdpmi-master/src/exphdlr.c | DPMI INT 31h handler, all services | ch-03 |
 | CWSDPMI tables.asm | cwsdpmi-master/src/tables.asm | IDT, interrupt dispatch | ch-03 |
 | CWSDPMI paging.c/h | cwsdpmi-master/src/paging.c | Page table management | ch-03 |
 | CWSDPMI gdt.h | cwsdpmi-master/src/gdt.h | GDT selectors, Ring assignments | ch-03 |
@@ -30,7 +30,7 @@
 
 | Source | Location | Covers | Used In |
 |--------|----------|--------|---------|
-| Allegro gui.c | lwp/sources/allegro/src/gui.c | Dialog system, message pump | ch-04, AI-REF [ALLEGRO] |
+| Allegro gui.c | lwp/sources/allegro/src/gui.c | Dialog system, message pump | ch-04 |
 | Allegro guiproc.c | lwp/sources/allegro/src/guiproc.c | Built-in widget procedures | ch-04 |
 | Allegro vesa.c | lwp/sources/allegro/src/dos/vesa.c | VESA graphics driver | ch-04 |
 | Allegro dtimer.c | lwp/sources/allegro/src/dos/dtimer.c | Timer interrupt handling | ch-04 |
