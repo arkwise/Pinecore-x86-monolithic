@@ -6,6 +6,18 @@
 
 ---
 
+## Repository scope — code here, research elsewhere
+
+This repository is the **Pinecore kernel and its source**, plus the documentation needed to build, run, and understand it. That documentation is both AI- and human-reviewed and **may lag the current code**.
+
+AI has been used openly as a **research tool** on this project — we don't hide that. What stays out of this repo is the bulk **reference material** (specification digests, reverse-engineering notes, reference chapters), which is being moved into a **separate research repository** (coming soon). It's derived from primary sources (Intel / DPMI / USB specs and reference implementations) and the project's own changelogs.
+
+- **AI-assisted code is allowed, but must be verified to build and work** under the project's cross-compiler before it lands.
+- **Bulk research / reference material belongs in the research repository, not here.**
+- Cite primary sources inline per [`ATTRIBUTION-POLICY.md`](ATTRIBUTION-POLICY.md).
+
+---
+
 ## 1. Before you start
 
 Read these, in order:

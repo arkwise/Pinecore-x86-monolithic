@@ -78,6 +78,8 @@ The serial log is the primary debugging surface — every DPMI call, IRQ deliver
 
 Pinecore's documentation lives in three tiers; the index is [`DOCUMENTATION.md`](DOCUMENTATION.md).
 
+> **Research lives elsewhere.** AI has been used openly as a research tool; the reference material it helped synthesize (from primary sources and the project's changelogs) is being migrated to a separate research repository (coming soon). Docs here are AI- and human-reviewed and may lag the code; AI-assisted code is welcome if verified to work — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 | Tier | Path | What it is |
 |---|---|---|
 | Reference manual | `docs/reference/`, `docs/kernel/`, `docs/boot/`, `docs/processor/`, `docs/usb/`, `docs/net/`, `docs/dpmi/` | Per-subsystem chapters: how it works, what its public API is, what it interacts with. Modeled after the Night Kernel Reference Manual structure. **Status: largely STUB at initial public release** — the roadmap in [`DOCUMENTATION.md`](DOCUMENTATION.md) lists what's planned and what's done. |
