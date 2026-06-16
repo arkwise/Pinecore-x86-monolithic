@@ -18,7 +18,9 @@
 
 #define FAT_MAX_HANDLES    32
 #define FAT_MAX_PATH       260
-#define FAT_MAX_DRIVES     3     /* A=0, B=1, C=2 */
+#define FAT_MAX_DRIVES     8     /* A=0 .. H=7. Was 3 (A/B/C only) until s60 M1
+                                    enabled MBR-walk auto-mount across multiple
+                                    ATA drives. See docs/design/MOUNT-STRATEGY.md. */
 
 /* FAT type */
 #define FAT_TYPE_12 12
@@ -80,6 +82,12 @@ struct fat_find {
 int  fat_mount_ata(int drive, uint8_t ata_id, uint32_t partition_lba);
 int  fat_mount_fdc(void);                /* mount floppy as A: */
 int  fat_is_mounted(int drive);          /* check if drive is mounted */
+
+/* Per-volume source info (for `mount` builtin / diagnostics).
+ * Returns 0 and fills out-params if drive is mounted, -1 otherwise.
+ * Any out-param may be NULL. */
+int  fat_get_source(int drive, int *is_floppy,
+                    uint8_t *ata_id, uint32_t *partition_lba);
 
 /* Drive selection */
 void fat_set_drive(int drive);           /* set current drive (0=A, 2=C) */

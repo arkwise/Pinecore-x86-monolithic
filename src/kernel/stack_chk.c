@@ -29,6 +29,7 @@
 #include "types.h"
 #include "serial.h"
 #include "panic.h"
+#include "io.h"
 
 /* The canary itself. Linker will place this in .data so it's writable
  * by stack_chk_init at boot. The literal here is what protects us
@@ -54,22 +55,40 @@ void __stack_chk_fail(void) {
     for (;;) __asm__ __volatile__("cli; hlt");
 }
 
-/* Called from kernel_main early in boot (after serial + PIT init but
- * before any module load) to seed the canary with high-entropy bytes.
- * Idempotent — safe to call multiple times. */
+/* Called from kernel_main early in boot. Seeds the canary with the
+ * best-available entropy WITHOUT using RDTSC — the original
+ * implementation #UD'd on 486-class CPUs (Vortex86SX) that don't
+ * implement RDTSC, triple-faulting the kernel before vga_init could
+ * run. Replacement uses CMOS RTC seconds + the boot-time PIC ISR
+ * snapshot, both 386-safe.
+ *
+ * Lower entropy than RDTSC (seconds changes once per second; PIC ISR
+ * is mostly zero at boot), but enough to defeat the trivial
+ * "predict and overwrite with itself" bypass. Acceptable trade-off:
+ * boots on every i386-compatible CPU vs hardens against attackers
+ * with a specific timing oracle. */
 void stack_chk_init(void) {
-    uint32_t tsc_lo, tsc_hi;
-    __asm__ __volatile__("rdtsc" : "=a"(tsc_lo), "=d"(tsc_hi));
+    uint8_t  rtc_sec;
+    uint8_t  pic_isr_m, pic_isr_s;
 
-    /* Mix the time-stamp counter halves with the link-time literal.
-     * The zero byte in any byte position of the canary catches naive
-     * strcpy/strcat overruns (they'll stop at the zero) — so we want
-     * the low byte to be zero. */
-    uint32_t g = ((uint32_t)tsc_lo ^ (uint32_t)tsc_hi) ^ 0xDEADC0DEu;
-    g = (g & 0xFFFFFF00u);                /* guarantee low byte = 0 */
-    if (g == 0) g = 0xCAFE0100u;          /* never leave all-zero */
+    /* CMOS RTC seconds: index reg 0x00, preserve NMI-disable bit. */
+    outb(0x70, (inb(0x70) & 0x80) | 0x00);
+    rtc_sec = inb(0x71);
 
-    __stack_chk_guard = g;
+    /* PIC ISR snapshot — read via OCW3, port 0x0A. */
+    outb(0x20, 0x0B); pic_isr_m = inb(0x20);
+    outb(0xA0, 0x0B); pic_isr_s = inb(0xA0);
+
+    {
+        uint32_t g = ((uint32_t)rtc_sec   << 24) |
+                     ((uint32_t)pic_isr_m << 16) |
+                     ((uint32_t)pic_isr_s <<  8) |
+                     0xCEu;
+        g ^= 0xDEADC0DEu;
+        g = (g & 0xFFFFFF00u);            /* guarantee low byte = 0 */
+        if (g == 0) g = 0xCAFE0100u;      /* never leave all-zero */
+        __stack_chk_guard = g;
+    }
 
     serial_puts("stack-canary: guard = ");
     serial_puthex(__stack_chk_guard);

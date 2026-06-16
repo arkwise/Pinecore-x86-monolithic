@@ -4,7 +4,7 @@
 # Produces a COFF go32 DOS binary that needs a DPMI host at runtime
 # (CWSDPMI.EXE on FreeDOS, or Pinecore's native DPMI host).
 
-DJGPP_PATH := /opt/djgpp
+DJGPP_PATH ?= /opt/djgpp
 export DJGPP := $(DJGPP_PATH)/djgpp.env
 
 CC      := $(DJGPP_PATH)/bin/i586-pc-msdosdjgpp-gcc

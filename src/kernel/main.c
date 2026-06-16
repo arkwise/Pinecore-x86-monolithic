@@ -17,6 +17,7 @@
 #include "mouse.h"
 #include "ata.h"
 #include "fat.h"
+#include "mount.h"
 #include "dos.h"
 #include "tss.h"
 #include "v86.h"
@@ -37,6 +38,7 @@
 #include "net.h"
 #include "v86_kbd.h"
 #include "klog.h"
+#include "hwinfo.h"
 
 extern uint32_t _kernel_end;  /* from linker script */
 
@@ -297,19 +299,31 @@ void kernel_main(void) {
     uint32_t heap_start_addr;
     uint32_t free_pages;
 
+    /* Diagnostic VGA marker — row 0, col 79 (far right, won't collide
+     * with PCBOOT's `@PG...J` trace at cols 8-21). Visible only if the
+     * kernel reaches its C entry on real hardware. Paired with a '2'
+     * after stack_chk_init below: '1' alone = stack_chk_init faulted
+     * (likely Vortex86 RDTSC #UD). '12' = canary survived, crash later.
+     * Cyan-on-black so it's distinguishable from PCBOOT's bright-white. */
+    *((volatile uint16_t *)(0xB8000 + 79 * 2)) = 0x0B31;  /* '1' */
+
     serial_putc('\n');
     serial_init();
     serial_puts("\n=== Pinecore kernel booting [");
     serial_puts(KERNEL_MODE_NAME);
     serial_puts(" mode] ===\n\n");
 
-    /* s54 Tier-1: seed the stack canary from RDTSC as the very first
-     * thing after serial. Every function entered after this point uses
-     * the high-entropy guard instead of the link-time placeholder. */
+    /* Seed the stack canary as the very first thing after serial.
+     * Implementation in stack_chk.c — uses CMOS+PIC entropy (not
+     * RDTSC, which 486-class CPUs may #UD on). */
     {
         extern void stack_chk_init(void);
         stack_chk_init();
     }
+
+    /* Diagnostic VGA marker '2' next to '1'. Visible iff
+     * stack_chk_init returned cleanly. */
+    *((volatile uint16_t *)(0xB8000 + 78 * 2)) = 0x0B32;  /* '2' */
 
     /* VGA text mode */
     vga_init();
@@ -486,32 +500,19 @@ void kernel_main(void) {
     else
         print_ok("FDC - no floppy drive");
 
-    /* FAT filesystem — mount all available drives */
-    if (ata_get_drive_count() > 0) {
-        klog_stage("init: FAT mount C: (HDD)");
-        serial_puts("FAT mount C: (HDD)...\n");
-        if (fat_mount_ata(FAT_DRIVE_C, 0, 0) == 0) {
-            print_ok("FAT C: - HDD mounted");
-        } else {
-            serial_puts("FAT C: mount failed\n");
-        }
-    }
-
-    if (fdc_detect()) {
-        klog_stage("init: FAT mount A: (floppy)");
-        serial_puts("FAT mount A: (floppy)...\n");
-        if (fat_mount_fdc() == 0) {
-            print_ok("FAT A: - floppy mounted");
-        } else {
-            serial_puts("FAT A: floppy mount failed\n");
-        }
-    }
-
-    /* Set default drive: C: if available, else A: */
+    /* Drive auto-mount — walks each ATA drive's MBR, mounts every FAT
+     * partition into the next free letter starting at C:; floppy claims
+     * A:. Replaces the s59 hardcoded fat_mount_ata(FAT_DRIVE_C, 0, 0) +
+     * fat_mount_fdc() block. ATAPI drives are listed but not mounted
+     * until the ISO9660 driver lands (M3). See docs/design/MOUNT-STRATEGY.md. */
+    klog_stage("init: mount (auto-discover)");
+    mount_init();
     if (fat_is_mounted(FAT_DRIVE_C))
-        fat_set_drive(FAT_DRIVE_C);
+        print_ok("Mount - C: ready");
     else if (fat_is_mounted(FAT_DRIVE_A))
-        fat_set_drive(FAT_DRIVE_A);
+        print_ok("Mount - A: ready (no HDD)");
+    else
+        print_ok("Mount - no drives mounted");
 
     /* PCORE.CFG — read config keys (must come after FAT mount) */
     klog_stage("init: PCORE.CFG parse");
@@ -602,6 +603,14 @@ void kernel_main(void) {
     autoload_drivers();
     klog_iter("");
 
+    /* Hardware inventory dump. Lands on VGA + serial before the shell
+     * splash so real hardware that lacks a keyboard (Vortex86 USB-only
+     * boards) still surfaces what was detected — user photographs the
+     * screen to capture PCI / ATA / WiFi / module state for triage. */
+    klog_stage("init: hwinfo dump");
+    hwinfo_dump(vga_puts);
+    hwinfo_dump(serial_puts);
+
     /* DOS mode: verify COMMAND.COM is readable */
     if (!KERNEL_MODE_IS_PURE) {
         int fd = fat_open("COMMAND.COM", 0);
@@ -636,7 +645,7 @@ void kernel_main(void) {
         }
     }
 
-    klog_stage("starting scheduler — entering shell");
+    klog_stage("starting scheduler - entering shell");
     serial_puts("\n*** Starting Pinecore [");
     serial_puts(KERNEL_MODE_NAME);
     serial_puts("] ***\n\n");

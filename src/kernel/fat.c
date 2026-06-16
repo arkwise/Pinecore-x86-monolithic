@@ -60,14 +60,14 @@ static uint8_t fat_buf[512];
  * Drive letter helpers
  * ================================================================ */
 
-/* Parse drive letter from path. Returns drive index (0-2) or -1 if none.
- * Sets *rest to point past the "X:" prefix. */
+/* Parse drive letter from path. Returns drive index in [0, FAT_MAX_DRIVES)
+ * or -1 if none / unmounted. Sets *rest to point past the "X:" prefix. */
 static int parse_drive_letter(const char *path, const char **rest) {
     if (path[0] && path[1] == ':') {
         int d = -1;
         char c = path[0];
-        if (c >= 'A' && c <= 'C') d = c - 'A';
-        if (c >= 'a' && c <= 'c') d = c - 'a';
+        if (c >= 'a' && c <= 'z') c -= 32;
+        if (c >= 'A' && c < 'A' + FAT_MAX_DRIVES) d = c - 'A';
         if (d >= 0 && volumes[d].mounted) {
             *rest = path + 2;
             return d;
@@ -642,6 +642,16 @@ int fat_is_floppy(void) {
 int fat_is_mounted(int drive) {
     if (drive < 0 || drive >= FAT_MAX_DRIVES) return 0;
     return volumes[drive].mounted;
+}
+
+int fat_get_source(int drive, int *is_floppy,
+                   uint8_t *ata_id, uint32_t *partition_lba) {
+    if (drive < 0 || drive >= FAT_MAX_DRIVES) return -1;
+    if (!volumes[drive].mounted) return -1;
+    if (is_floppy)     *is_floppy     = volumes[drive].use_fdc;
+    if (ata_id)        *ata_id        = volumes[drive].drive_id;
+    if (partition_lba) *partition_lba = volumes[drive].partition_lba;
+    return 0;
 }
 
 void fat_set_drive(int drive) {

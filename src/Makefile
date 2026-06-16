@@ -11,13 +11,13 @@ ASM_SRC = boot/boot.asm boot/isr_stubs.asm libc/setjmp.asm
 C_SRC   = kernel/main.c kernel/idt.c kernel/pic.c kernel/pit.c \
           kernel/serial.c kernel/vga.c kernel/pmm.c kernel/vmm.c \
           kernel/heap.c kernel/keyboard.c kernel/mouse.c \
-          kernel/ata.c kernel/fat.c kernel/dos.c \
+          kernel/ata.c kernel/fat.c kernel/mount.c kernel/dos.c \
           kernel/tss.c kernel/v86.c kernel/comload.c kernel/exeload.c kernel/fdc.c kernel/rtc.c \
           kernel/sched.c kernel/vt.c kernel/shell.c kernel/vbe.c kernel/dpmi.c kernel/vcpi.c \
           kernel/config.c kernel/setup.c kernel/build_info.c kernel/v86_kbd.c \
           kernel/panic.c kernel/pci.c kernel/module.c kernel/kexports.c kernel/klog.c \
           kernel/net.c kernel/dma.c kernel/irq.c kernel/int13.c kernel/port_io.c \
-          kernel/stack_chk.c \
+          kernel/stack_chk.c kernel/hwinfo.c \
           libc/string.c
 
 # Object files — separate build dirs for each mode

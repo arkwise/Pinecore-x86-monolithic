@@ -55,8 +55,9 @@
 
 #define ATAPI_SECTOR_SIZE      2048
 
-/* Max drives: 2 channels x 2 drives */
-#define MAX_DRIVES 4
+/* Max drives — public constant lives in ata.h as ATA_MAX_DRIVES so
+ * the mount layer can iterate the sparse table. */
+#define MAX_DRIVES ATA_MAX_DRIVES
 static struct ata_drive drives[MAX_DRIVES];
 static int drive_count;
 
@@ -245,6 +246,16 @@ static int ata_identify_drive(uint8_t channel, uint8_t drive, struct ata_drive *
     drv->drive       = drive;
     drv->sectors     = identify[60] | ((uint32_t)identify[61] << 16);
     drv->sector_size = 512;
+    drv->cyls        = identify[1];
+    drv->heads       = identify[3];
+    drv->spt         = identify[6];
+    /* Some emulators (86Box PCI IDE on ALi ALADDiN-PRO II) and old real
+     * drives advertise CHS-only by leaving the LBA28 total-sectors field
+     * (words 60-61) zero. Fall back to CHS-derived capacity and use CHS
+     * READ/WRITE addressing for I/O. */
+    drv->chs_only    = (drv->sectors == 0);
+    if (drv->chs_only && drv->cyls && drv->heads && drv->spt)
+        drv->sectors = (uint32_t)drv->cyls * drv->heads * drv->spt;
     ata_extract_model(identify, drv->model);
     return 1;
 }
@@ -285,6 +296,41 @@ void ata_init(void) {
     }
 }
 
+/* Program DRVHEAD + SECCOUNT + sector/cylinder registers for a transfer.
+ * LBA28 path (bit 6 of DRVHEAD set) is the primary; CHS path is the
+ * fallback for drives that advertise themselves as non-LBA (e.g. some
+ * 86Box machine-type emulated drives, legacy real hardware). Both
+ * paths use the same READ/WRITE opcodes downstream. */
+static int ata_program_address(const struct ata_drive *drv, uint16_t io,
+                               uint32_t lba, uint8_t count) {
+    if (drv->chs_only) {
+        uint32_t spt   = drv->spt;
+        uint32_t heads = drv->heads;
+        uint32_t sect, head, cyl;
+        if (!spt || !heads) return -1;
+        sect = (lba % spt) + 1;
+        head = (lba / spt) % heads;
+        cyl  = lba / (spt * heads);
+        if (cyl > 0xFFFF) return -1;
+        outb(io + ATA_REG_DRVHEAD,
+             0xA0 | (drv->drive << 4) | (head & 0x0F));
+        ata_delay(drv->channel);
+        outb(io + ATA_REG_SECCOUNT, count);
+        outb(io + ATA_REG_LBA_LO,  sect & 0xFF);
+        outb(io + ATA_REG_LBA_MID, cyl & 0xFF);
+        outb(io + ATA_REG_LBA_HI,  (cyl >> 8) & 0xFF);
+    } else {
+        outb(io + ATA_REG_DRVHEAD,
+             0xE0 | (drv->drive << 4) | ((lba >> 24) & 0x0F));
+        ata_delay(drv->channel);
+        outb(io + ATA_REG_SECCOUNT, count);
+        outb(io + ATA_REG_LBA_LO,  lba & 0xFF);
+        outb(io + ATA_REG_LBA_MID, (lba >> 8) & 0xFF);
+        outb(io + ATA_REG_LBA_HI,  (lba >> 16) & 0xFF);
+    }
+    return 0;
+}
+
 int ata_read(uint8_t drive_id, uint32_t lba, uint8_t count, void *buffer) {
     struct ata_drive *drv;
     uint16_t io;
@@ -297,17 +343,9 @@ int ata_read(uint8_t drive_id, uint32_t lba, uint8_t count, void *buffer) {
     drv = &drives[drive_id];
     io = channel_io[drv->channel];
 
-    /* Select drive + LBA high bits */
-    outb(io + ATA_REG_DRVHEAD, 0xE0 | (drv->drive << 4) | ((lba >> 24) & 0x0F));
-    ata_delay(drv->channel);
+    if (ata_program_address(drv, io, lba, count) < 0) return -1;
 
-    /* Set sector count and LBA */
-    outb(io + ATA_REG_SECCOUNT, count);
-    outb(io + ATA_REG_LBA_LO,  lba & 0xFF);
-    outb(io + ATA_REG_LBA_MID, (lba >> 8) & 0xFF);
-    outb(io + ATA_REG_LBA_HI,  (lba >> 16) & 0xFF);
-
-    /* Send READ command */
+    /* Send READ command (same opcode for CHS and LBA28) */
     outb(io + ATA_REG_COMMAND, ATA_CMD_READ);
 
     for (s = 0; s < count; s++) {
@@ -333,17 +371,9 @@ int ata_write(uint8_t drive_id, uint32_t lba, uint8_t count, const void *buffer)
     drv = &drives[drive_id];
     io = channel_io[drv->channel];
 
-    /* Select drive + LBA high bits */
-    outb(io + ATA_REG_DRVHEAD, 0xE0 | (drv->drive << 4) | ((lba >> 24) & 0x0F));
-    ata_delay(drv->channel);
+    if (ata_program_address(drv, io, lba, count) < 0) return -1;
 
-    /* Set sector count and LBA */
-    outb(io + ATA_REG_SECCOUNT, count);
-    outb(io + ATA_REG_LBA_LO,  lba & 0xFF);
-    outb(io + ATA_REG_LBA_MID, (lba >> 8) & 0xFF);
-    outb(io + ATA_REG_LBA_HI,  (lba >> 16) & 0xFF);
-
-    /* Send WRITE command */
+    /* Send WRITE command (same opcode for CHS and LBA28) */
     outb(io + ATA_REG_COMMAND, ATA_CMD_WRITE);
 
     for (s = 0; s < count; s++) {

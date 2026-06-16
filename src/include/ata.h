@@ -17,13 +17,21 @@
 #define ATA_DRIVE_MASTER 0
 #define ATA_DRIVE_SLAVE  1
 
+/* Sparse drive-table size: 2 channels × (master + slave) = 4 slots.
+ * Present drives can land at any slot; iterate all and check `present`. */
+#define ATA_MAX_DRIVES   4
+
 struct ata_drive {
     uint8_t  present;
     uint8_t  atapi;       /* 0 = ATA disk, 1 = ATAPI (CD/DVD) */
     uint8_t  channel;     /* 0 = primary, 1 = secondary */
     uint8_t  drive;       /* 0 = master, 1 = slave */
+    uint8_t  chs_only;    /* 1 = drive reports LBA28 total = 0, use CHS reads */
     uint32_t sectors;     /* total media sectors (units: sector_size) */
     uint32_t sector_size; /* 512 for ATA, 2048 for ATAPI */
+    uint16_t cyls;        /* CHS geometry — populated for all ATA drives */
+    uint16_t heads;
+    uint16_t spt;         /* sectors per track */
     char     model[41];   /* model string, null-terminated */
 };
 

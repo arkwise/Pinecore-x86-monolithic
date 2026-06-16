@@ -15,6 +15,8 @@
 #include "keyboard.h"
 #include "vt.h"
 #include "serial.h"
+#include "pci.h"
+#include "module.h"
 
 /* Arrow scancodes (set 1, extended; our ISR ORs in KEY_EXTENDED=0x80) */
 #define SC_UP        (0x48 | KEY_EXTENDED)
@@ -76,6 +78,55 @@ static void draw_screen(int vt, int sel) {
     vt_puts(vt, "  ");
     vt_puts(vt, itoa10(n, num));
     vt_puts(vt, " layouts available.  More can be added in PCORE.CFG or by `layout` command.\n");
+
+    /* USB/keyboard diagnostic block — surfaces whether the USB stack
+     * actually initialised so the user can tell, without a working
+     * keyboard, whether their USB keyboard SHOULD be alive at this
+     * prompt. Critical for Vortex86 USB-only-keyboard triage.
+     *
+     * Three lines:
+     *   1. USB host controllers detected (PCI scan)
+     *   2. Loaded .kmd modules — look for USBCORE / UHCI / HID
+     *   3. Hint: PS/2 still works regardless. */
+    vt_set_color(vt, 7, 0);
+    vt_puts(vt, "\n  --- USB keyboard status ---\n");
+    {
+        int hc = pci_usb_count();
+        vt_puts(vt, "  USB host controllers detected: ");
+        vt_puts(vt, itoa10(hc, num));
+        vt_puts(vt, "\n");
+        if (hc > 0) {
+            int i;
+            for (i = 0; i < hc && i < 3; i++) {
+                const struct pci_dev *u = pci_usb_get(i);
+                if (!u) continue;
+                vt_puts(vt, "    ");
+                switch (u->prog_if) {
+                case PCI_PROGIF_UHCI: vt_puts(vt, "UHCI"); break;
+                case PCI_PROGIF_OHCI: vt_puts(vt, "OHCI"); break;
+                case PCI_PROGIF_EHCI: vt_puts(vt, "EHCI"); break;
+                case PCI_PROGIF_XHCI: vt_puts(vt, "xHCI"); break;
+                default:              vt_puts(vt, "(?)"); break;
+                }
+                vt_puts(vt, "\n");
+            }
+        }
+    }
+    vt_puts(vt, "  Loaded driver modules: ");
+    {
+        struct loaded_module *m = module_list_head();
+        int first = 1;
+        if (!m) vt_puts(vt, "(none)");
+        while (m) {
+            if (!first) vt_puts(vt, ", ");
+            vt_puts(vt, m->name);
+            first = 0;
+            m = m->next;
+        }
+        vt_puts(vt, "\n");
+    }
+    vt_set_color(vt, 8, 0);
+    vt_puts(vt, "  PS/2 keyboard works regardless. USB keyboard needs USBCORE+UHCI+HID loaded.\n");
     vt_set_color(vt, 7, 0);
 }
 

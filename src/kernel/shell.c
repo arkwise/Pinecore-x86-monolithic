@@ -18,6 +18,8 @@
 #include "rtc.h"
 #include "io.h"
 #include "module.h"  /* module_resolve — for cmd_wifi → iwi.kmd */
+#include "ata.h"     /* ata_get_drive / ata_get_drive_count — for cmd_mount */
+#include "hwinfo.h"  /* hwinfo_dump — for cmd_hwinfo */
 
 /* Shell state.
  * `shell_vt` resolves to the current task's bound VT on every read, so
@@ -330,6 +332,10 @@ static void cmd_help(const char *args) {
     if (pager_print("    echo <text>        Print text\n")) return;
     if (pager_print("\n  Localization:\n")) return;
     if (pager_print("    layout             Show / list / set keyboard layout (us, de, ...)\n")) return;
+    if (pager_print("\n  Hardware:\n")) return;
+    if (pager_print("    hwinfo / lspci     Hardware inventory (PCI, ATA, USB, modules)\n")) return;
+    if (pager_print("\n  Storage:\n")) return;
+    if (pager_print("    mount / drives     List mounted volumes + detected ATA/ATAPI drives\n")) return;
     if (pager_print("\n  Network:\n")) return;
     if (pager_print("    wifi               Probe + report Intel 2200/2915 WiFi state (iwi.kmd)\n")) return;
     if (pager_print("\n  Sessions:\n")) return;
@@ -953,6 +959,118 @@ static void cmd_reboot(const char *args) {
     while (1) __asm__ volatile("hlt");
 }
 
+/* `mount` builtin: list mounted FAT volumes + detected drives.
+ *
+ * Two sections:
+ *   1. Mounted volumes (drive letter, FS type, source, capacity, free)
+ *   2. Detected drives (ATA channel/slave or FDC) — including ATAPI
+ *      drives that aren't yet mountable (ISO9660 pending).
+ *
+ * Capacity is computed from total_clusters * sec_per_clus * 512 (KB),
+ * free likewise. We assume 512-byte sectors (only sector size our FAT
+ * driver handles). Switches `active_drive` to each mounted slot via
+ * fat_set_drive() to query its info, then restores. */
+static void cmd_mount(const char *args) {
+    int saved;
+    int d;
+    int any_mounted = 0;
+    int n_ata;
+
+    (void)args;
+
+    saved = fat_get_drive();
+
+    print("Mounted volumes:\n");
+    for (d = 0; d < FAT_MAX_DRIVES; d++) {
+        int      is_floppy = 0;
+        uint8_t  ata_id    = 0;
+        uint32_t part_lba  = 0;
+        uint32_t spc, total_clus, free_clus;
+        uint32_t total_kb, free_kb;
+        int      type;
+
+        if (!fat_is_mounted(d)) continue;
+        any_mounted = 1;
+
+        fat_set_drive(d);
+        fat_get_source(d, &is_floppy, &ata_id, &part_lba);
+        type       = fat_get_type();
+        spc        = fat_get_sec_per_clus();
+        total_clus = fat_get_total_clusters();
+        free_clus  = fat_count_free_clusters();
+        total_kb   = (total_clus * spc) / 2;   /* clusters * (spc * 512 / 1024) */
+        free_kb    = (free_clus  * spc) / 2;
+
+        print("  ");
+        vt_putc(shell_vt, (char)('A' + d));
+        print(":  FAT");
+        print_num((uint32_t)type);
+        print("  ");
+        if (is_floppy) {
+            print("floppy           ");
+        } else {
+            print("ata");
+            print_num((uint32_t)ata_id);
+            print(" lba=");
+            print_hex(part_lba);
+            print("  ");
+        }
+        print(" ");
+        print_num(total_kb);
+        print(" KB total, ");
+        print_num(free_kb);
+        print(" KB free");
+        if (d == saved) print("   *");
+        newline();
+    }
+    if (!any_mounted)
+        print("  (none)\n");
+
+    print("\nDetected drives:\n");
+    n_ata = ata_get_drive_count();
+    if (n_ata == 0) {
+        print("  (no ATA)\n");
+    } else {
+        int slot;
+        for (slot = 0; slot < 4; slot++) {
+            const struct ata_drive *ad = ata_get_drive((uint8_t)slot);
+            if (!ad || !ad->present) continue;
+            print("  ata");
+            print_num((uint32_t)slot);
+            print("  ");
+            print(ad->atapi ? "ATAPI" : "ATA  ");
+            print(" ");
+            print(ad->model);
+            print(" (");
+            print_num(ad->sectors);
+            print(" x ");
+            print_num(ad->sector_size);
+            print(" B)");
+            if (ad->atapi) print("  [ISO9660 not yet]");
+            newline();
+        }
+    }
+
+    /* Restore active drive */
+    fat_set_drive(saved);
+    print("\nCurrent: ");
+    vt_putc(shell_vt, (char)('A' + saved));
+    print(":\n");
+}
+
+/* `hwinfo` builtin: re-run the boot-time hardware inventory dump on
+ * demand. Same output as the auto-dump after autoload (main.c) — just
+ * routed through the shell's `print` so it lands on the current VT
+ * instead of via vga_puts. */
+static void cmd_hwinfo_emit(const char *s) {
+    print(s);
+}
+
+static void cmd_hwinfo(const char *args) {
+    (void)args;
+    hwinfo_dump(cmd_hwinfo_emit);
+}
+
 /* Phase 11 (WiFi) — `wifi` builtin: probe + report state of iwi.kmd.
  *
  * Calls iwi_test() in the loaded iwi.kmd module (EXPORT_SYMBOL_GPL).
@@ -1141,6 +1259,10 @@ static void execute(const char *cmdline) {
     if (strstart(cmd, "layout")) { cmd_layout(args); return; }  /* Phase 4.6.5 M2 */
     if (strstart(cmd, "setup"))  { cmd_setup(args); return; }   /* Phase 4.6.5 M4 */
     if (strstart(cmd, "wifi"))   { cmd_wifi(args); return; }    /* Phase 11 WiFi (iwi.kmd) */
+    if (strstart(cmd, "mount"))  { cmd_mount(args); return; }
+    if (strstart(cmd, "drives")) { cmd_mount(args); return; }
+    if (strstart(cmd, "hwinfo")) { cmd_hwinfo(args); return; }
+    if (strstart(cmd, "lspci"))  { cmd_hwinfo(args); return; }
     if (strstart(cmd, "exit"))  {
         print("Closing terminal...\n");
         if (vt_count_active() <= 1) {
